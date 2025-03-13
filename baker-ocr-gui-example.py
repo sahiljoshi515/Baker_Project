@@ -2,6 +2,8 @@ import os
 import time
 import requests
 import openai
+import gradio as gr
+import tiktoken
 from mistralai import Mistral
 
 # ------ AZURE ------
@@ -11,12 +13,12 @@ READ_API_URL = f"{AZURE_ENDPOINT}/vision/v3.2/read/analyze"
 
 
 # ------ OPENAI -------
-OPENAI_API_KEY = "<your_openai_api_key>"
+OPENAI_API_KEY = "<your-api-key>"
 openai.api_key = OPENAI_API_KEY
 
 
 # ------ MISTRAL -------
-MISTRAL_API_KEY = "<your_mistral_api_key>"
+MISTRAL_API_KEY = "<your-api-key>"
 client = Mistral(api_key=MISTRAL_API_KEY)
 
 # --- Functions ---
@@ -97,55 +99,113 @@ def azure_ocr(pdf_path):
             text += line.get("text", "") + "\n"
     return text
 
-def summarize_text(text):
+# Function to split text into chunks based on token limits
+def split_text_into_chunks(text, max_tokens=1000):
     """
-    Sends the provided text to the ChatGPT API to get a summary.
+    Splits a text into chunks of max_tokens size (approximation) to fit within the model's limits.
     """
-    system_prompt = "You are an assistant that analyzes the contents of a text chunk \
-                     and provides a short summary"
-    user_prompt = f"Please provide a concise summary of the following content:\n\n{text}"
+    encoding = tiktoken.encoding_for_model("gpt-4")  # Adjust for different models if needed
+    words = text.split()  # Simple word-based split (can improve with sentence splitting)
     
-    response = openai.chat.completions.create(
-        model="gpt-4",
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ],
-        temperature=0.5,
-    )
-    summary = response.choices[0].message['content']
-    return summary
+    chunks = []
+    current_chunk = []
+    current_tokens = 0
+
+    for word in words:
+        word_tokens = len(encoding.encode(word))  # Count tokens for the word
+        if current_tokens + word_tokens > max_tokens:
+            chunks.append(" ".join(current_chunk))
+            current_chunk = [word]
+            current_tokens = word_tokens
+        else:
+            current_chunk.append(word)
+            current_tokens += word_tokens
+
+    if current_chunk:
+        chunks.append(" ".join(current_chunk))
+
+    return chunks
+
+def summarize_text(text, max_tokens=1000):
+    """
+    Summarizes long text by splitting it into smaller chunks, summarizing each chunk, 
+    and then recursively summarizing the combined summary.
+    """
+    chunks = split_text_into_chunks(text, max_tokens=max_tokens)
+    
+    summaries = []
+    for chunk in chunks:
+        system_prompt = "You are an assistant that analyzes a text chunk and provides a short summary."
+        user_prompt = f"Please summarize the following content:\n\n{chunk}"
+
+        response = openai.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.5,
+        )
+
+        summaries.append(response.choices[0].message.content)
+
+    # If multiple summaries, recursively summarize them
+    combined_summary = " ".join(summaries)
+    
+    if len(summaries) > 1:
+        print("Summarizing combined text...")
+        return summarize_text(combined_summary, max_tokens=max_tokens)
+    
+    return combined_summary
+
+
+def process_pdfs(files, ocr_engine):
+    """
+    Processes multiple PDF files and returns their summaries.
+    """
+    if not files:
+        return "No files uploaded."
+    
+    summaries = []
+    
+    for file in files:
+        pdf_path = file.name
+        print(f"Processing {pdf_path} with {ocr_engine} OCR...")
+
+        # Perform OCR
+        if ocr_engine == "Mistral":
+            ocr_text = mistral_ocr(pdf_path)
+        elif ocr_engine == "Azure":
+            ocr_text = azure_ocr(pdf_path)
+        else:
+            summaries.append(f"Invalid OCR engine selected for {pdf_path}.")
+            continue
+
+        if not ocr_text:
+            summaries.append(f"OCR failed for {pdf_path}.")
+            continue
+
+        # Summarize text
+        summary = summarize_text(ocr_text)
+        summaries.append(f"### {os.path.basename(pdf_path)}\n{summary}\n\n")
+
+    return "\n".join(summaries)
 
 def main():
-    input_folder = "/sample_data"    # Folder containing PDF files
-    output_folder = "/output" # Folder to save OCR texts and summaries
-    os.makedirs(output_folder, exist_ok=True)
+    # Gradio UI with multiple file selection
+    demo = gr.Interface(
+        fn=process_pdfs,
+        inputs=[
+            gr.Files(label="Upload PDFs (Multiple Files Allowed)"),
+            gr.Dropdown(["Mistral", "Azure"], label="Select OCR Engine")
+        ],
+        outputs=gr.Markdown(label="Summaries"),
+        title="OCR & Summarization Tool",
+        description="Upload one or more PDFs, select an OCR engine, and get the summaries.",
+        flagging_mode="never"
+    )
 
-    for filename in os.listdir(input_folder):
-        if filename.lower().endswith(".pdf"):
-            pdf_path = os.path.join(input_folder, filename)
-            print(f"Processing {pdf_path} ...")
-            
-            # Get OCR text from Azure
-            # ocr_text = azure_ocr(pdf_path)
-            ocr_text = mistral_ocr(pdf_path)
-            if not ocr_text:
-                print(f"Skipping {filename} due to OCR error.")
-                continue
-
-            # Save the OCR text
-            base_filename = os.path.splitext(filename)[0]
-            ocr_filename = os.path.join(output_folder, base_filename + "_ocr.txt")
-            with open(ocr_filename, "w", encoding="utf-8") as f:
-                f.write(ocr_text)
-            print(f"OCR text saved to {ocr_filename}")
-
-            # Summarize the OCR text using ChatGPT
-            summary = summarize_text(ocr_text)
-            summary_filename = os.path.join(output_folder, base_filename + "_summary.txt")
-            with open(summary_filename, "w", encoding="utf-8") as f:
-                f.write(summary)
-            print(f"Summary saved to {summary_filename}\n")
-
+    demo.launch(share=True)
+    
 if __name__ == "__main__":
     main()
