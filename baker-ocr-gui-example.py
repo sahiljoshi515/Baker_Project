@@ -2,13 +2,9 @@ import os
 import time
 import requests
 import openai
+import gradio as gr
+import tiktoken
 from mistralai import Mistral
-from pathlib import Path
-from mistralai import DocumentURLChunk, ImageURLChunk, TextChunk
-import json
-from mistralai.models import OCRResponse
-import base64
-
 
 # ------ AZURE ------
 AZURE_ENDPOINT = "https://<your-region>.api.cognitive.microsoft.com"
@@ -17,12 +13,12 @@ READ_API_URL = f"{AZURE_ENDPOINT}/vision/v3.2/read/analyze"
 
 
 # ------ OPENAI -------
-OPENAI_API_KEY = "<your_openai_api_key>"
+OPENAI_API_KEY = "<your-api-key>"
 openai.api_key = OPENAI_API_KEY
 
 
 # ------ MISTRAL -------
-MISTRAL_API_KEY = "<your_mistral_api_key>"
+MISTRAL_API_KEY = "<your-api-key>"
 client = Mistral(api_key=MISTRAL_API_KEY)
 
 # --- Functions ---
@@ -56,6 +52,35 @@ def mistral_ocr(pdf_path):
     
     # Combine everything into one plain text string
     final_text = "\n".join(all_pages_text)
+    return final_text
+
+# This computes OCR with the help of Amazon Textract
+def textract_ocr(pdf_path):
+    # Convert PDF to images (300 DPI for better accuracy)
+    images = convert_from_path(pdf_path, dpi=250)
+
+    textract = boto3.client('textract')
+    all_pages_text = []
+
+    for i, img in enumerate(images):
+        img_bytes = io.BytesIO()
+        img.save(img_bytes, format='PNG')
+        img_bytes.seek(0)  # Move pointer to start of file
+        # Process each image with Textract
+        response = textract.detect_document_text(Document={'Bytes': img_bytes.getvalue()})
+
+        # Extract text from response
+        page_text = []
+        for item in response["Blocks"]:
+            if item["BlockType"] == "LINE":
+                page_text.append(item["Text"])
+        
+        all_pages_text.append("\n".join(page_text))
+
+        print(f"OCR Completed for Page {i+1}")  # Debugging statement
+
+    # Combine text from all pages
+    final_text = "\n\n".join(all_pages_text)
     return final_text
 
 # This does the ocr with azure AI
@@ -103,7 +128,8 @@ def azure_ocr(pdf_path):
             text += line.get("text", "") + "\n"
     return text
 
-def summarize_text(text):
+# Function to split text into chunks based on token limits
+def split_text_into_chunks(text, max_tokens=1000):
     """
     Sends the provided text to the ChatGPT API to get a summary.
     """
@@ -122,111 +148,6 @@ def summarize_text(text):
     summary = response.choices[0].message['content']
     return summary
 
-
-"""
-The functions below are used to convert multimodal PDF's to structured JSON.
-The functions have not been tested on videos, pure images, documents which
-do not fit in the context length of the mistral model, and documents with multiple images.
-"""
-def mistral_ocr(pdf_path):
-    # load file
-    pdf_file = Path("/content/wjc_0162.tif.pdf")
-    assert pdf_file.is_file()
-    uploaded_file = client.files.upload(
-    file={
-        "file_name": pdf_file.stem,
-        "content": pdf_file.read_bytes(),
-    },
-    purpose="ocr",
-    )
-    signed_url = client.files.get_signed_url(file_id=uploaded_file.id, expiry=1)
-    # process pdf
-    pdf_response = client.ocr.process(document=DocumentURLChunk(document_url=signed_url.url), model="mistral-ocr-latest", include_image_base64=True)
-    pdf_text = pdf_response.pages[0].markdown
-    
-    # extract file which image was written to
-    img_path_name = extract_images(pdf_response)[0]
-    # image ocr
-
-    # Verify image exists
-    image_file = Path(img_path_name)
-    assert image_file.is_file()
-
-    # Encode image as base64 for API
-    encoded = base64.b64encode(image_file.read_bytes()).decode()
-    base64_data_url = f"data:image/jpeg;base64,{encoded}"
-
-    # Process image with OCR
-    image_response = client.ocr.process(
-        document=ImageURLChunk(image_url=base64_data_url),
-        model="mistral-ocr-latest"
-    )
-
-    # Convert response to JSON
-    # response_dict = json.loads(image_response.model_dump_json())
-    # json_string = json.dumps(response_dict, indent=4)
-    # print(json_string)
-
-    # Combine text from image and markdown and extract JSON metadata
-    image_ocr_markdown = image_response.pages[0].markdown
-
-    # Get structured response from model
-    chat_response = client.chat.complete(
-        model="pixtral-12b-latest",
-        messages=[
-            {
-                "role": "user",
-                "content": (
-                    f"This is a pdf's OCR in markdown:\n\n{image_ocr_markdown + pdf_text}\n.\n"
-                    "Convert this into a sensible structured json response containing full_text, doc_id,  Title, Language, Subject, Format, Genre, Administration, People and Organizations, Time Span, Date, Summary"
-                ),
-            }
-        ],
-        response_format={"type": "json_object"},
-        temperature=0,
-    )
-
-    # Parse and return JSON response
-    response_dict = json.loads(chat_response.choices[0].message.content)
-    # with open(pdf_path.replace(".pdf",".json"), 'w', encoding='utf-8') as f:
-    #     json.dump(response_dict, f, ensure_ascii=False, indent=4)
-    return json.dumps(response_dict, indent=4)
-
-
-def extract_images(ocr_response: OCRResponse) -> str:
-  images = []
-  for page in ocr_response.pages:
-    # image_data = {}
-    for img in page.images:
-      # image_data[img.id] = img.image_base64
-      # print(base64.b64decode(img.image_base64))
-      header, encoded = img.image_base64.split(",", 1)
-      with open(img.id, "wb") as f:
-        f.write(base64.b64decode(encoded))
-      images.append(img.id)
-  return images
-
-def replace_images_in_markdown(markdown_str: str, images_dict: dict) -> str:
-    for img_name, base64_str in images_dict.items():
-        markdown_str = markdown_str.replace(f"![{img_name}]({img_name})", f"![{img_name}]({base64_str})")
-        # images_dict[img_name] = im
-    return markdown_str
-
-def get_combined_markdown(ocr_response: OCRResponse) -> str:
-  markdowns: list[str] = []
-  for page in ocr_response.pages:
-    image_data = {}
-    for img in page.images:
-      image_data[img.id] = img.image_base64
-    markdowns.append(replace_images_in_markdown(page.markdown, image_data))
-
-"""
-The functions above are used to convert multimodal PDF's to structured JSON.
-The functions have not been tested on videos, pure images, and documents which
-do not fit in the context length of the mistral model.
-"""
-
-
 def main():
     input_folder = "/sample_data"    # Folder containing PDF files
     output_folder = "/output" # Folder to save OCR texts and summaries
@@ -240,9 +161,17 @@ def main():
             # Get OCR text from Azure
             # ocr_text = azure_ocr(pdf_path)
             ocr_text = mistral_ocr(pdf_path)
-            if not ocr_text:
-                print(f"Skipping {filename} due to OCR error.")
-                continue
+        elif ocr_engine == "Azure":
+            ocr_text = azure_ocr(pdf_path)
+        elif ocr_engine == "Textract":
+            ocr_text = textract_ocr(pdf_path)
+        else:
+            summaries.append(f"Invalid OCR engine selected for {pdf_path}.")
+            continue
+
+        if not ocr_text:
+            summaries.append(f"OCR failed for {pdf_path}.")
+            continue
 
             # Save the OCR text
             base_filename = os.path.splitext(filename)[0]
@@ -257,7 +186,6 @@ def main():
             with open(summary_filename, "w", encoding="utf-8") as f:
                 f.write(summary)
             print(f"Summary saved to {summary_filename}\n")
-
 
 if __name__ == "__main__":
     main()
