@@ -1,7 +1,7 @@
 from mistralai import Mistral
 
 # ------ MISTRAL -------
-MISTRAL_API_KEY = "tfwTOcakQh0Wx0mYYVsouBCnOXbCLxAg"
+MISTRAL_API_KEY = "<your-api-key>"
 client = Mistral(api_key=MISTRAL_API_KEY)
 
 # This does the ocr with mistral AI

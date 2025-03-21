@@ -13,7 +13,7 @@ from azure import azure_ocr
 from textract import textract_ocr
 
 # ------ OPENAI -------
-OPENAI_API_KEY = "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"
+OPENAI_API_KEY = "<your-api-key>"
 openai.api_key = OPENAI_API_KEY
 
 # Function to split text into chunks based on token limits
