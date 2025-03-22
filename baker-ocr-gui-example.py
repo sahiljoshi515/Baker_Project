@@ -67,9 +67,11 @@ def process_pdfs(files, ocr_engine):
 
         if not ocr_json:
             return f"OCR failed for {pdf_path}."
+        
+        print(f"Processing {pdf_path} with {ocr_engine} OCR completed!")
+        yield ocr_json
 
-    print(f"Processing {pdf_path} with {ocr_engine} OCR completed!")
-    return ocr_json
+    # return ocr_json
 
 def main():
     with gr.Blocks() as demo:
