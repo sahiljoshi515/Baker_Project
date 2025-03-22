@@ -46,4 +46,24 @@ def azure_ocr(pdf_path):
     for page in read_results:
         for line in page.get("lines", []):
             text += line.get("text", "") + "\n"
-    return text
+
+
+    # Get structured response from model
+    chat_response = client.chat.complete(
+        model="pixtral-12b-latest",
+        messages=[
+            {
+                "role": "user",
+                "content": (
+                    f"This is a pdf's OCR in markdown:\n\n{text}\n.\n"
+                    "Convert this into a sensible structured json response containing full_text, doc_id,  Title, Language, Subject, Format, Genre, Administration, People and Organizations, Time Span, Date, Summary"
+                ),
+            }
+        ],
+        response_format={"type": "json_object"},
+        temperature=0.5,
+    )
+
+    # Parse and return JSON response
+    response_dict = json.loads(chat_response.choices[0].message.content)
+    return json.dumps(response_dict, indent=4)

@@ -1,3 +1,13 @@
+from mistralai import Mistral
+from pdf2image import convert_from_path
+import boto3
+import io
+import json
+
+# ------ MISTRAL -------
+MISTRAL_API_KEY = "<your-api-key>"
+client = Mistral(api_key=MISTRAL_API_KEY)
+
 # This computes OCR with the help of Amazon Textract
 def textract_ocr(pdf_path):
     # Convert PDF to images (300 DPI for better accuracy)
@@ -25,4 +35,24 @@ def textract_ocr(pdf_path):
 
     # Combine text from all pages
     final_text = "\n\n".join(all_pages_text)
-    return final_text
+
+    # Get structured response from model
+    chat_response = client.chat.complete(
+        model="pixtral-12b-latest",
+        messages=[
+            {
+                "role": "user",
+                "content": (
+                    f"This is a pdf's OCR in markdown:\n\n{final_text}\n.\n"
+                    "Convert this into a sensible structured json response containing full_text, doc_id, Title, Language, Subject, Format, Genre, Administration, People and Organizations, Time Span, Date, Summary"
+                ),
+            }
+        ],
+        response_format={"type": "json_object"},
+        temperature=0.5,
+    )
+
+    # Parse and return JSON response
+    response_dict = json.loads(chat_response.choices[0].message.content)
+
+    return json.dumps(response_dict, indent=4)
