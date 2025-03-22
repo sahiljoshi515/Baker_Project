@@ -7,11 +7,11 @@ import openai
 import json
 
 # ------ OPENAI -------
-OPENAI_API_KEY = "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"
+OPENAI_API_KEY = "<your-api-key>"
 openai.api_key = OPENAI_API_KEY
 
 # ------ MISTRAL -------
-MISTRAL_API_KEY = "tfwTOcakQh0Wx0mYYVsouBCnOXbCLxAg"
+MISTRAL_API_KEY = "<your-api-key>"
 client = Mistral(api_key=MISTRAL_API_KEY)
 
 # This does the ocr with mistral AI

@@ -71,8 +71,6 @@ def process_pdfs(files, ocr_engine):
         print(f"Processing {pdf_path} with {ocr_engine} OCR completed!")
         yield ocr_json
 
-    # return ocr_json
-
 def main():
     with gr.Blocks() as demo:
         gr.Markdown("## OCR & Metadata Extraction Tool")
