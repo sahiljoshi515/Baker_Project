@@ -3,47 +3,16 @@ from mistralai.models import OCRResponse
 from typing import List
 import base64
 from pathlib import Path
-import openai
 import json
+import os
+from dotenv import load_dotenv
 
-# ------ OPENAI -------
-OPENAI_API_KEY = "<your-api-key>"
-openai.api_key = OPENAI_API_KEY
+# Load environment variables from .env file
+load_dotenv()  # By default looks for .env file in current directory
 
 # ------ MISTRAL -------
-MISTRAL_API_KEY = "<your-api-key>"
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 client = Mistral(api_key=MISTRAL_API_KEY)
-
-# This does the ocr with mistral AI
-def mistral_ocr_legacy(pdf_path):
-    uploaded_pdf = client.files.upload(
-        file={
-            "file_name": "uploaded_file.pdf",
-            "content": open(pdf_path, "rb"),
-        },
-        purpose="ocr"
-    )
-
-    signed_url = client.files.get_signed_url(file_id=uploaded_pdf.id)
-
-    ocr_response = client.ocr.process(
-        model="mistral-ocr-latest",
-        document={
-            "type": "document_url",
-            "document_url": signed_url.url,
-        }
-    )  
-
-    all_pages_text = []
-    for page_obj in ocr_response.pages:
-        page_index = page_obj.index
-        page_text = page_obj.markdown
-        text_block = f"Page {page_index}:\n{page_text}\n"
-        all_pages_text.append(text_block)
-    
-    # Combine everything into one plain text string
-    final_text = "\n".join(all_pages_text)
-    return final_text
 
 def mistral_ocr(pdf_path) -> str:
     # load file
@@ -93,23 +62,7 @@ def mistral_ocr(pdf_path) -> str:
             # Optional: return PDF-only OCR, or raise error
             image_ocr_markdown = ""  # or: raise
 
-    system_prompt = "You are an assistant that specializes in filling json forms with OCR data. Please fill accurate entries in the fields provided and output a json file only!"
-    user_prompt = f"This is a pdf's OCR in markdown:\n\n{image_ocr_markdown + pdf_text}\n.\n" + "Convert this into a sensible structured json response containing full_text, doc_id,  Title, Language, Subject, Format, Genre, Administration, People and Organizations, Time Span, Date, Summary"
-
-    chat_response = openai.chat.completions.create(
-        model="gpt-4",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ],
-        temperature=0.5,
-    )
-
-    # Parse and return JSON response
-    response_dict = json.loads(chat_response.choices[0].message.content, strict=False)
-
-    return json.dumps(response_dict, indent=4)
-
+    return image_ocr_markdown + pdf_text
 
 def extract_images(ocr_response: OCRResponse) -> List[str]:
     """

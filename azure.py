@@ -1,7 +1,13 @@
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()  # By default looks for .env file in current directory
+
 # ------ AZURE ------
-AZURE_ENDPOINT = "https://<your-region>.api.cognitive.microsoft.com"
-AZURE_API_KEY = "<your_azure_api_key>"
-READ_API_URL = f"{AZURE_ENDPOINT}/vision/v3.2/read/analyze"
+AZURE_ENDPOINT = os.getenv("AZURE_ENDPOINT")
+AZURE_API_KEY = os.getenv("AZURE_API_KEY")
+READ_API_URL = os.getenv("READ_API_URL")
 
 # This does the ocr with azure AI
 def azure_ocr(pdf_path):
