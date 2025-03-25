@@ -1,299 +1,249 @@
-import os
-import time
-import requests
-import openai
 import gradio as gr
 import tiktoken
-from mistralai import Mistral
-from pathlib import Path
-from mistralai import DocumentURLChunk, ImageURLChunk, TextChunk
+from mistral import mistral_ocr
+from azure import azure_ocr
+from textract import textract_ocr
+import os
+from dotenv import load_dotenv
+from openai import OpenAI
+import anthropic
+import openai
 import json
-from mistralai.models import OCRResponse
-import base64
 
-# ------ AZURE ------
-AZURE_ENDPOINT = "https://<your-region>.api.cognitive.microsoft.com"
-AZURE_API_KEY = "<your_azure_api_key>"
-READ_API_URL = f"{AZURE_ENDPOINT}/vision/v3.2/read/analyze"
-
+# Load environment variables from .env file
+load_dotenv() 
 
 # ------ OPENAI -------
-OPENAI_API_KEY = "<your-api-key>"
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 openai.api_key = OPENAI_API_KEY
 
+# ------ DEEPSEEK -------
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+deep_client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url="https://api.deepseek.com")
 
-# ------ MISTRAL -------
-MISTRAL_API_KEY = "<your-api-key>"
-client = Mistral(api_key=MISTRAL_API_KEY)
-
-# --- Functions ---
-
-# This does the ocr with mistral AI
-def mistral_ocr(pdf_path):
-    uploaded_pdf = client.files.upload(
-        file={
-            "file_name": "uploaded_file.pdf",
-            "content": open(pdf_path, "rb"),
-        },
-        purpose="ocr"
-    )
-
-    signed_url = client.files.get_signed_url(file_id=uploaded_pdf.id)
-
-    ocr_response = client.ocr.process(
-        model="mistral-ocr-latest",
-        document={
-            "type": "document_url",
-            "document_url": signed_url.url,
-        }
-    )  
-
-    all_pages_text = []
-    for page_obj in ocr_response.pages:
-        page_index = page_obj.index
-        page_text = page_obj.markdown
-        text_block = f"Page {page_index}:\n{page_text}\n"
-        all_pages_text.append(text_block)
-    
-    # Combine everything into one plain text string
-    final_text = "\n".join(all_pages_text)
-    return final_text
-
-# This computes OCR with the help of Amazon Textract
-def textract_ocr(pdf_path):
-    # Convert PDF to images (300 DPI for better accuracy)
-    images = convert_from_path(pdf_path, dpi=250)
-
-    textract = boto3.client('textract')
-    all_pages_text = []
-
-    for i, img in enumerate(images):
-        img_bytes = io.BytesIO()
-        img.save(img_bytes, format='PNG')
-        img_bytes.seek(0)  # Move pointer to start of file
-        # Process each image with Textract
-        response = textract.detect_document_text(Document={'Bytes': img_bytes.getvalue()})
-
-        # Extract text from response
-        page_text = []
-        for item in response["Blocks"]:
-            if item["BlockType"] == "LINE":
-                page_text.append(item["Text"])
-        
-        all_pages_text.append("\n".join(page_text))
-
-        print(f"OCR Completed for Page {i+1}")  # Debugging statement
-
-    # Combine text from all pages
-    final_text = "\n\n".join(all_pages_text)
-    return final_text
-
-# This does the ocr with azure AI
-def azure_ocr(pdf_path):
-    """
-    Sends a PDF file to Azure OCR (Read API) and returns the extracted text.
-    """
-    with open(pdf_path, "rb") as f:
-        file_data = f.read()
-
-    headers = {
-        "Ocp-Apim-Subscription-Key": AZURE_API_KEY,
-        "Content-Type": "application/pdf"
-    }
-    
-    # Send the PDF for analysis
-    response = requests.post(READ_API_URL, headers=headers, data=file_data)
-    if response.status_code != 202:
-        print(f"Error processing {pdf_path}: {response.status_code}, {response.text}")
-        return None
-
-    # Retrieve the URL to poll for the results
-    operation_url = response.headers.get("Operation-Location")
-    if not operation_url:
-        print(f"Operation-Location header missing for {pdf_path}")
-        return None
-
-    # Poll the operation URL until the analysis is complete
-    while True:
-        result_response = requests.get(operation_url, headers={"Ocp-Apim-Subscription-Key": AZURE_API_KEY})
-        result_json = result_response.json()
-        status = result_json.get("status")
-        if status == "succeeded":
-            break
-        elif status == "failed":
-            print(f"OCR processing failed for {pdf_path}")
-            return None
-        time.sleep(1)  # Wait a bit before polling again
-
-    # Extract recognized text from the analysis result.
-    text = ""
-    read_results = result_json.get("analyzeResult", {}).get("readResults", [])
-    for page in read_results:
-        for line in page.get("lines", []):
-            text += line.get("text", "") + "\n"
-    return text
+# ------ ANTHROPIC -------
+ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
+claude = anthropic.Anthropic()
 
 # Function to split text into chunks based on token limits
 def split_text_into_chunks(text, max_tokens=1000):
     """
-    Sends the provided text to the ChatGPT API to get a summary.
+    Splits a text into chunks of max_tokens size (approximation) to fit within the model's limits.
     """
-    system_prompt = "You are an assistant that analyzes the contents of a text chunk \
-                     and provides a short summary"
-    user_prompt = f"Please provide a concise summary of the following content:\n\n{text}"
+    encoding = tiktoken.encoding_for_model("gpt-4")  # Adjust for different models if needed
+    words = text.split()  # Simple word-based split (can improve with sentence splitting)
     
-    response = openai.chat.completions.create(
+    chunks = []
+    current_chunk = []
+    current_tokens = 0
+
+    for word in words:
+        word_tokens = len(encoding.encode(word))  # Count tokens for the word
+        if current_tokens + word_tokens > max_tokens:
+            chunks.append(" ".join(current_chunk))
+            current_chunk = [word]
+            current_tokens = word_tokens
+        else:
+            current_chunk.append(word)
+            current_tokens += word_tokens
+
+    if current_chunk:
+        chunks.append(" ".join(current_chunk))
+
+    return chunks
+
+def run_ocr(files, ocr_engine):
+    """
+    Process multiple PDF files and return their summaries.
+
+    Args:
+        files (list): List of PDF files as file objects
+        ocr_engine (str): OCR engine to use (Mistral, Azure, or Textract)
+
+    Returns:
+        str: Summaries of the PDF files
+    """
+    if not files:
+        return "No files uploaded."
+    
+    for file in files:
+        pdf_path = file.name
+        print(f"Processing {pdf_path} with {ocr_engine} OCR...")
+
+        # Perform OCR
+        if ocr_engine == "Mistral":
+            ocr_response = mistral_ocr(pdf_path)
+        elif ocr_engine == "Azure":
+            ocr_response = azure_ocr(pdf_path)
+        elif ocr_engine == "Textract":
+            ocr_response = textract_ocr(pdf_path)
+
+        if not ocr_response:
+            return f"OCR failed for {pdf_path}."
+        
+        print(f"Processing {pdf_path} with {ocr_engine} OCR completed!")
+        yield "OCR COMPLETED", ocr_response
+
+def gpt_extract(ocr_response):
+    system_prompt = "You are an assistant that specializes in filling json forms with OCR data. Please fill accurate entries in the fields provided and output a json file only!"
+    user_prompt = f"This is a pdf's OCR in markdown:\n\n{ocr_response}\n.\n" + "Convert this into a sensible structured json response containing doc_id,  Title, Language, Subject, Format, Genre, Administration, People and Organizations, Time Span, Date, Summary"
+
+    chat_response = openai.chat.completions.create(
         model="gpt-4",
-        messages = [
+        messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ],
         temperature=0.5,
     )
-    summary = response.choices[0].message['content']
-    return summary
 
-"""
-The functions below are used to convert multimodal PDF's to structured JSON.
-The functions have not been tested on videos, pure images, documents which
-do not fit in the context length of the mistral model, and documents with multiple images.
-"""
-def mistral_ocr_test(pdf_path) -> str:
-    # load file
-    pdf_file = Path("/content/wjc_0162.tif.pdf")
-    assert pdf_file.is_file()
-    uploaded_file = client.files.upload(
-    file={
-        "file_name": pdf_file.stem,
-        "content": pdf_file.read_bytes(),
-    },
-    purpose="ocr",
-    )
-    signed_url = client.files.get_signed_url(file_id=uploaded_file.id, expiry=1)
-    # process pdf
-    pdf_response = client.ocr.process(document=DocumentURLChunk(document_url=signed_url.url), model="mistral-ocr-latest", include_image_base64=True)
-    pdf_text = pdf_response.pages[0].markdown
-    
-    # extract file which image was written to
-    img_path_name = extract_images(pdf_response)[0]
-    # image ocr
+    # Parse and return JSON response
+    response_dict = json.loads(chat_response.choices[0].message.content, strict=False)
 
-    # Verify image exists
-    image_file = Path(img_path_name)
-    assert image_file.is_file()
+    return json.dumps(response_dict, indent=4)
 
-    # Encode image as base64 for API
-    encoded = base64.b64encode(image_file.read_bytes()).decode()
-    base64_data_url = f"data:image/jpeg;base64,{encoded}"
-
-    # Process image with OCR
-    image_response = client.ocr.process(
-        document=ImageURLChunk(image_url=base64_data_url),
-        model="mistral-ocr-latest"
-    )
-
-    # Convert response to JSON
-    # response_dict = json.loads(image_response.model_dump_json())
-    # json_string = json.dumps(response_dict, indent=4)
-    # print(json_string)
-
-    # Combine text from image and markdown and extract JSON metadata
-    image_ocr_markdown = image_response.pages[0].markdown
+def deepseek_extract(ocr_response):
+    system_prompt = "You are an assistant that specializes in filling json forms with OCR data. Please fill accurate entries in the fields provided and output a json file only!"
+    user_prompt = f"This is a pdf's OCR in markdown:\n\n{ocr_response}\n.\n" + "Convert this into a sensible structured json response containing doc_id,  Title, Language, Subject, Format, Genre, Administration, People and Organizations, Time Span, Date, Summary"
 
     # Get structured response from model
-    chat_response = client.chat.complete(
-        model="pixtral-12b-latest",
+    chat_response = deep_client.chat.completions.create(
+        model="deepseek-chat",  # or another model name
         messages=[
-            {
-                "role": "user",
-                "content": (
-                    f"This is a pdf's OCR in markdown:\n\n{image_ocr_markdown + pdf_text}\n.\n"
-                    "Convert this into a sensible structured json response containing full_text, doc_id,  Title, Language, Subject, Format, Genre, Administration, People and Organizations, Time Span, Date, Summary"
-                ),
-            }
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
         ],
-        response_format={"type": "json_object"},
-        temperature=0,
+        response_format={"type": "json_object"},  # If supported
+        temperature=0.3,  # Lower for more deterministic output
     )
 
     # Parse and return JSON response
     response_dict = json.loads(chat_response.choices[0].message.content)
-    # with open(pdf_path.replace(".pdf",".json"), 'w', encoding='utf-8') as f:
-    #     json.dump(response_dict, f, ensure_ascii=False, indent=4)
+
     return json.dumps(response_dict, indent=4)
 
+def claude_extract(ocr_response):
+    system_prompt = "You are an assistant that specializes in filling json forms with OCR data. Please fill accurate entries in the fields provided and output a json file only!"
+    user_prompt = f"This is a pdf's OCR in markdown:\n\n{ocr_response}\n.\n" + "Convert this into a sensible structured json response containing doc_id,  Title, Language, Subject, Format, Genre, Administration, People and Organizations, Time Span, Date, Summary"
+    
+    chat_response = claude.messages.create(
+        model="claude-3-5-sonnet-latest",
+        max_tokens=1000,
+        temperature=0.7,
+        system=system_prompt,
+        messages=[
+            {"role": "user", "content": user_prompt},
+        ]
+    )
+    
+    # Parse and return JSON response
+    response_dict = json.loads(chat_response.content[0].text)
 
-def extract_images(ocr_response: OCRResponse) -> str:
-  images = []
-  for page in ocr_response.pages:
-    # image_data = {}
-    for img in page.images:
-      # image_data[img.id] = img.image_base64
-      # print(base64.b64decode(img.image_base64))
-      header, encoded = img.image_base64.split(",", 1)
-      with open(img.id, "wb") as f:
-        f.write(base64.b64decode(encoded))
-      images.append(img.id)
-  return images
+    return json.dumps(response_dict, indent=4)
 
-def replace_images_in_markdown(markdown_str: str, images_dict: dict) -> str:
-    for img_name, base64_str in images_dict.items():
-        markdown_str = markdown_str.replace(f"![{img_name}]({img_name})", f"![{img_name}]({base64_str})")
-        # images_dict[img_name] = im
-    return markdown_str
+def extract_metadata(ocr_response, llm_engine):
+    """
+    Extract metadata from the OCR response based on the selected LLM engine.
 
-def get_combined_markdown(ocr_response: OCRResponse) -> str:
-  markdowns: list[str] = []
-  for page in ocr_response.pages:
-    image_data = {}
-    for img in page.images:
-      image_data[img.id] = img.image_base64
-    markdowns.append(replace_images_in_markdown(page.markdown, image_data))
+    Args:
+        ocr_response (dict): OCR response from the OCR engine
+        llm_engine (str): LLM engine to use (DeepSeek, GPT-4, or Claude)
 
-"""
-The functions above are used to convert multimodal PDF's to structured JSON.
-The functions have not been tested on videos, pure images, and documents which
-do not fit in the context length of the mistral model.
-"""
+    Returns:
+        dict: Metadata extracted from the OCR response
+    """
+    if not ocr_response:
+        return "No response provided."
+
+    print(f"Extracting metadata using {llm_engine}...")
+
+    if llm_engine == "DeepSeek":
+        metadata = deepseek_extract(ocr_response)
+    elif llm_engine == "GPT-4":
+        metadata = gpt_extract(ocr_response)
+    elif llm_engine == "Claude":
+        metadata = claude_extract(ocr_response)
+    
+    if not metadata:
+        return f"Failed to extract metadata using {llm_engine}."
+        
+    print(f"Metadata extraction completed!")
+    return metadata
 
 def main():
-    input_folder = "/sample_data"    # Folder containing PDF files
-    output_folder = "/output" # Folder to save OCR texts and summaries
-    os.makedirs(output_folder, exist_ok=True)
+    with gr.Blocks(css=".gr-button { font-size: 16px !important; } .gr-dropdown, .gr-textbox { font-size: 15px !important; }") as demo:
+        gr.Markdown("""
+        # 🧾 OCR & Metadata Extraction Tool
+        
+        Welcome! This tool helps you:
+        1. **Extract text** from PDF files using a selected OCR engine
+        2. **Convert** that text into structured metadata using an LLM
+        
+        ---
+        """)
 
-    for filename in os.listdir(input_folder):
-        if filename.lower().endswith(".pdf"):
-            pdf_path = os.path.join(input_folder, filename)
-            print(f"Processing {pdf_path} ...")
-            
-            # Get OCR text from Azure
-            # ocr_text = azure_ocr(pdf_path)
-            ocr_text = mistral_ocr(pdf_path)
-        elif ocr_engine == "Azure":
-            ocr_text = azure_ocr(pdf_path)
-        elif ocr_engine == "Textract":
-            ocr_text = textract_ocr(pdf_path)
-        else:
-            summaries.append(f"Invalid OCR engine selected for {pdf_path}.")
-            continue
+        ocr_done_state = gr.State()
 
-        if not ocr_text:
-            summaries.append(f"OCR failed for {pdf_path}.")
-            continue
+        # --- Step 1: Upload PDFs and select OCR engine ---
+        gr.Markdown("### 📄 Step 1: Upload PDF and Select OCR Engine")
 
-        # Save the OCR text
-        base_filename = os.path.splitext(filename)[0]
-        ocr_filename = os.path.join(output_folder, base_filename + "_ocr.txt")
-        with open(ocr_filename, "w", encoding="utf-8") as f:
-            f.write(ocr_text)
-        print(f"OCR text saved to {ocr_filename}")
+        with gr.Row():
+            files_input = gr.Files(
+                label="📂 Upload PDF(s)", 
+                type="filepath", 
+                file_types=[".pdf"]
+            )
 
-        # Summarize the OCR text using ChatGPT
-        summary = summarize_text(ocr_text)
-        summary_filename = os.path.join(output_folder, base_filename + "_summary.txt")
-        with open(summary_filename, "w", encoding="utf-8") as f:
-            f.write(summary)
-        print(f"Summary saved to {summary_filename}\n")
+            engine_dropdown = gr.Dropdown(
+                choices=["Mistral", "Azure", "Textract"],
+                label="🧠 OCR Engine",
+                info="Choose the engine for text extraction",
+                interactive=True
+            )
 
+        run_ocr_btn = gr.Button("▶️ Run OCR", variant="primary")
+
+        ocr_status = gr.Textbox(
+            label="Status",
+            interactive=False,
+            visible=True,
+            show_label=False
+        )
+
+        # --- Step 2: Select LLM and extract metadata ---
+        gr.Markdown("### 🧠 Step 2: Extract Metadata with an LLM")
+
+        llm_dropdown = gr.Dropdown(
+            choices=["DeepSeek", "GPT-4", "Claude"],
+            label="🤖 LLM Engine",
+            interactive=False,
+            info="Select a model to generate structured metadata"
+        )
+
+        extract_btn = gr.Button("📤 Extract Metadata (JSON)", interactive=False)
+
+        with gr.Accordion("🧾 View Extracted Metadata", open=False):
+            json_output = gr.JSON(label="Structured Metadata")
+
+        # --- Wiring ---
+        run_ocr_btn.click(
+            fn=run_ocr,
+            inputs=[files_input, engine_dropdown],
+            outputs=[ocr_status, ocr_done_state]
+        ).then(
+            fn=lambda: (gr.update(interactive=True), gr.update(interactive=True)),
+            inputs=None,
+            outputs=[llm_dropdown, extract_btn]
+        )
+
+        extract_btn.click(
+            fn=extract_metadata,
+            inputs=[ocr_done_state, llm_dropdown],
+            outputs=[json_output]
+        )
+
+    demo.launch(share=True)
+
+    
 if __name__ == "__main__":
     main()
