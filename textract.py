@@ -3,9 +3,14 @@ from pdf2image import convert_from_path
 import boto3
 import io
 import json
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()  # By default looks for .env file in current directory
 
 # ------ MISTRAL -------
-MISTRAL_API_KEY = "<your-api-key>"
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 client = Mistral(api_key=MISTRAL_API_KEY)
 
 # This computes OCR with the help of Amazon Textract
@@ -36,23 +41,4 @@ def textract_ocr(pdf_path):
     # Combine text from all pages
     final_text = "\n\n".join(all_pages_text)
 
-    # Get structured response from model
-    chat_response = client.chat.complete(
-        model="pixtral-12b-latest",
-        messages=[
-            {
-                "role": "user",
-                "content": (
-                    f"This is a pdf's OCR in markdown:\n\n{final_text}\n.\n"
-                    "Convert this into a sensible structured json response containing full_text, doc_id, Title, Language, Subject, Format, Genre, Administration, People and Organizations, Time Span, Date, Summary"
-                ),
-            }
-        ],
-        response_format={"type": "json_object"},
-        temperature=0.5,
-    )
-
-    # Parse and return JSON response
-    response_dict = json.loads(chat_response.choices[0].message.content)
-
-    return json.dumps(response_dict, indent=4)
+    return final_text
