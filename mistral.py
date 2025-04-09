@@ -5,6 +5,9 @@ import base64
 from pathlib import Path
 import json
 import tiktoken
+from dotenv import load_dotenv
+import os
+import time
 
 # Load environment variables from .env file
 load_dotenv()  # By default looks for .env file in current directory
@@ -13,7 +16,7 @@ load_dotenv()  # By default looks for .env file in current directory
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 client = Mistral(api_key=MISTRAL_API_KEY)
 
-def mistral_ocr(pdf_path) -> str:
+def mistral_ocr_legacy(pdf_path) -> str:
     # load file
     uploaded_pdf = client.files.upload(
         file={
@@ -22,13 +25,16 @@ def mistral_ocr(pdf_path) -> str:
         },
         purpose="ocr"
     )
+    time.sleep(1)
     signed_url = client.files.get_signed_url(file_id=uploaded_pdf.id)
+    time.sleep(1)
     # process pdf
     pdf_response = client.ocr.process(
         document=DocumentURLChunk(document_url=signed_url.url), 
         model="mistral-ocr-latest", 
         include_image_base64=True
     )
+    time.sleep(1)
     pdf_text = pdf_response.pages[0].markdown
     
     # extract file which image was written to
@@ -51,6 +57,7 @@ def mistral_ocr(pdf_path) -> str:
                     document=ImageURLChunk(image_url=base64_data_url),
                     model="mistral-ocr-latest"
                 )
+                time.sleep(3)
                 image_texts.append(image_response.pages[0].markdown)
 
             # Combine all image OCR text
@@ -87,7 +94,7 @@ def num_tokens_by_tiktoken(text: str) -> int:
     return len(enc.encode(text))
   
 
-def mistral_ocr_inplace(pdf_path) -> str:
+def mistral_ocr(pdf_path) -> str:
   # load file
   uploaded_pdf = client.files.upload(
       file={
@@ -122,6 +129,7 @@ def mistral_ocr_inplace(pdf_path) -> str:
   pdf_text = pdf_response.pages[0].markdown
   
   markdown = get_combined_markdown(pdf_response)
+  return markdown
   # print("--------")
   # print("num input tokens: ")
   num_tokens = num_tokens_by_tiktoken(markdown)
@@ -131,44 +139,6 @@ def mistral_ocr_inplace(pdf_path) -> str:
   if(num_tokens > 123000):
     print("num tokens too large")
     return
-  # print("--------")
-  # print("markdown")
-  # print(markdown)
-
-  # Get structured response from model
-
-  system_prompt = "You are an assistant that specializes in filling json forms with OCR data. Please fill accurate entries in the fields provided and output a json file only!"
-  user_prompt = f"This is a pdf's OCR in markdown:\n\n{markdown}\n.\n" + "Convert this into a sensible structured json response containing full_text, doc_id,  Title, Language, Subject, Format, Genre, Administration, People and Organizations, Time Span, Date, Description"
-
-  wait_time = 1
-  it = 0
-  while(it < 5):
-    try:
-      chat_response = openai.chat.completions.create(
-        model="gpt-4",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ],
-        temperature=0.5,
-  )
-      break
-    except:
-      it+=1
-      if wait_time == 1 :
-        wait_time *= 2
-      else:
-        wait_time **2
-      time.sleep(wait_time)
-      continue
-    return "failed"
-
-  # Parse and return JSON response
-  # print("response: ")
-  # print(chat_response.choices[0].message.content.replace("\\", " and "))
-  response_dict = json.loads(chat_response.choices[0].message.content.replace("\\", " and "), strict=False)
-
-  return json.dumps(response_dict, indent=4)
 
 
 def replace_images_in_markdown(markdown_str: str, images_dict: dict) -> str:
