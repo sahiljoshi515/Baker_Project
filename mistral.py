@@ -186,3 +186,87 @@ def get_combined_markdown(ocr_response: OCRResponse) -> str:
   # print(markdowns)
 
   return "\n\n".join(markdowns)
+
+
+"""
+FUNCTIONS FOR DISPLAYING OCR'ED TEXT
+"""
+
+
+def replace_images_in_markdown_to_display(markdown_str: str, images_dict: dict) -> str:
+    """
+    Replace image placeholders in markdown with base64-encoded images.
+
+    Args:
+        markdown_str: Markdown text containing image placeholders
+        images_dict: Dictionary mapping image IDs to base64 strings
+
+    Returns:
+        Markdown text with images replaced by base64 data
+    """
+    for img_name, base64_str in images_dict.items():
+        markdown_str = markdown_str.replace(
+            f"![{img_name}]({img_name})", f"![{img_name}]({base64_str})"
+        )
+    return markdown_str
+
+def get_combined_markdown_to_display(ocr_response: OCRResponse) -> str:
+    """
+    Combine OCR text and images into a single markdown document.
+
+    Args:
+        ocr_response: Response from OCR processing containing text and images
+
+    Returns:
+        Combined markdown string with embedded images
+    """
+    markdowns: list[str] = []
+    # Extract images from page
+    for page in ocr_response.pages:
+        image_data = {}
+        for img in page.images:
+            image_data[img.id] = img.image_base64
+        # Replace image placeholders with actual images
+        markdowns.append(replace_images_in_markdown_to_display(page.markdown, image_data))
+
+    return "\n\n".join(markdowns)
+
+def mistral_ocr_markdown(pdf_path) -> str:
+  """
+  pdf path - path to a valid pdf
+  """
+  # load file
+  uploaded_pdf = client.files.upload(
+      file={
+          "file_name": "uploaded_file.pdf",
+          "content": open(pdf_path, "rb"),
+      },
+      purpose="ocr"
+  )
+  signed_url = client.files.get_signed_url(file_id=uploaded_pdf.id)
+
+  # process pdf
+  wait_time = 1
+  it = 0
+  while(it < 5):
+    try:
+      pdf_response = client.ocr.process(
+          document=DocumentURLChunk(document_url=signed_url.url),
+          model="mistral-ocr-latest",
+          include_image_base64=True
+      )
+      break
+    except:
+      it+=1
+      if wait_time == 1 :
+        wait_time *= 2
+      else:
+        wait_time **2
+      time.sleep(wait_time)
+      continue
+    return "failed"
+
+  pdf_text = pdf_response.pages[0].markdown
+
+  # CHANGE THIS
+  display(Markdown(get_combined_markdown_to_display(pdf_response)))
