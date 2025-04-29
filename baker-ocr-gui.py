@@ -50,6 +50,7 @@ def run_ocr(files, ocr_engine):
         return "No files uploaded."
 
     ocr_response = ""  # Initialize empty string to concatenate all OCR responses
+    markdown_response = ""
 
     for file in files:
         pdf_path = file.name
@@ -57,7 +58,7 @@ def run_ocr(files, ocr_engine):
 
         # Perform OCR
         if ocr_engine == "Mistral":
-            file_ocr_response = mistral_ocr(pdf_path)
+            file_ocr_response, file_markdown_response = mistral_ocr(pdf_path)
         elif ocr_engine == "Textract":
             file_ocr_response = textract_ocr(pdf_path)
 
@@ -65,11 +66,12 @@ def run_ocr(files, ocr_engine):
             return f"OCR failed for {pdf_path}."
         
         ocr_response += "\n\n" + file_ocr_response  # Concatenate the OCR result
+        markdown_response += "\n\n" + file_markdown_response
 
         print(f"Processing {pdf_path} with {ocr_engine} OCR completed!")
         ocr_response += "\n\n" + file_ocr_response  # Concatenate the OCR result
         
-    yield "OCR COMPLETED", ocr_response
+    yield "OCR COMPLETED", ocr_response, markdown_response
 
 def gpt_extract(ocr_response: str) -> str:
     system_prompt = "You are an assistant that specializes in filling json forms with OCR data. Please fill accurate entries in the fields provided and output a json file only!"
@@ -226,6 +228,10 @@ def main():
             show_label=False
         )
 
+        # Add markdown display for OCR results
+        with gr.Accordion("📝 View OCR Results in Markdown", open=False):
+            markdown_display = gr.Markdown(label="OCR Results")
+
         # --- Step 2A: Itemize Document with Gemini ---
         gr.Markdown("### 📊 Step 2A: Itemize Document with Gemini")
 
@@ -254,7 +260,7 @@ def main():
         run_ocr_btn.click(
             fn=run_ocr,
             inputs=[files_input, engine_dropdown],
-            outputs=[ocr_status, ocr_done_state]
+            outputs=[ocr_status, ocr_done_state, markdown_display]
         ).then(
             fn=lambda: gr.update(interactive=False),  # Disable the 'Run OCR' button as soon as it's clicked
             inputs=None,
