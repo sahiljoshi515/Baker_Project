@@ -37,10 +37,9 @@ Follow these steps to run the application:
 The Gradio UI will launch at: http://localhost:7860
 
 ## Options Available
-### OCR Engines
+### OCR Engine
 
 - Mistral – Lightweight, fast OCR
-- Textract – Amazon Textract for high-quality document OCR
 
 ### Metadata Extraction (LLMs)
 

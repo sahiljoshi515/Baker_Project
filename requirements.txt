@@ -17,4 +17,3 @@ jinja2
 markupsafe
 
 pdf2image
-boto3
