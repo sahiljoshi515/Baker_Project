@@ -1,7 +1,6 @@
 import gradio as gr
 import tiktoken
 from mistral import mistral_ocr
-from textract import textract_ocr
 import os
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -41,7 +40,7 @@ def run_ocr(files, ocr_engine):
 
     Args:
         files (list): List of PDF files as file objects
-        ocr_engine (str): OCR engine to use (Mistral, or Textract)
+        ocr_engine (str): OCR engine to use (Mistral)
 
     Returns:
         str: Summaries of the PDF files
@@ -59,8 +58,6 @@ def run_ocr(files, ocr_engine):
         # Perform OCR
         if ocr_engine == "Mistral":
             file_ocr_response, file_markdown_response = mistral_ocr(pdf_path)
-        elif ocr_engine == "Textract":
-            file_ocr_response = textract_ocr(pdf_path)
 
         if not file_ocr_response:
             return f"OCR failed for {pdf_path}."
@@ -213,7 +210,7 @@ def main():
             )
 
             engine_dropdown = gr.Dropdown(
-                choices=["Mistral", "Textract"],
+                choices=["Mistral"],
                 label="🧠 OCR Engine",
                 info="Choose the engine for text extraction",
                 interactive=True
