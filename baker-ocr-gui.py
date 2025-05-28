@@ -8,8 +8,8 @@ import anthropic
 import openai
 import json
 import markdown2
-from weasyprint import HTML
 import tempfile
+import pypandoc
 
 # Load environment variables from .env file
 load_dotenv() 
@@ -151,9 +151,22 @@ def markdown_to_pdf(markdown_text):
     # Convert markdown to HTML
     html = markdown2.markdown(markdown_text)
     print("Converting the markdown to PDF!")
-    # Create temporary PDF file
+    # Add PDF-specific formatting options
+    extra_args = [
+        '--pdf-engine=xelatex',  # Better unicode support
+        '--variable', 'geometry:margin=1in',  # Reasonable margins
+        '--variable', 'geometry:a4paper',  # Standard paper size
+        '--variable', 'mainfont=Helvetica'  # Ensures proper font handling
+    ]
+    
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_pdf:
-        HTML(string=html).write_pdf(tmp_pdf.name)
+        pypandoc.convert_text(
+            markdown_text,
+            'pdf',
+            format='md',
+            outputfile=tmp_pdf.name,
+            extra_args=extra_args
+        )
         return tmp_pdf.name
 
 def extract_metadata(ocr_response, llm_engine):
