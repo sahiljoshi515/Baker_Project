@@ -6,7 +6,6 @@ openai
 anthropic
 mistral 
 markdown2
-weasyprint
 
 # Textract (if using)
 # Textract==1.6.4
@@ -17,3 +16,4 @@ jinja2
 markupsafe
 
 pdf2image
+pypandoc
