@@ -294,8 +294,46 @@ def itemize_with_gemini(ocr_response):
     return response.choices[0].message.content
 
 def gemini_extract(ocr_response):
-    system_prompt = "You are an assistant that specializes in filling json forms with OCR data. Please fill accurate entries in the fields provided and output a json file only!"
-    user_prompt = f"This is a pdf's OCR in markdown:\n\n{ocr_response}\n.\n" + "Convert this into a sensible structured json response containing doc_id,  Title, Language, Subject, Format, Genre, Administration, People and Organizations, Time Span, Date, Summary"
+    system_prompt = (
+        "You are an assistant that fills structured JSON forms based on OCR text input. "
+        "You must return a single, valid JSON object with only the specified fields. "
+        "Do not include any explanation, markdown, or formatting like triple backticks. "
+        "If a field is missing or unknown, set its value to null."
+    )
+
+    user_prompt = (
+        f"This is OCR content extracted from a document:\n\n{ocr_response}\n\n"
+        "Please convert this into one structured JSON object with exactly the following fields:\n"
+        " - Asset_Id\n"
+        " - Quartex Unique ID\n"
+        " - Quartex Name\n"
+        " - Collection(s)\n"
+        " - Published URL\n"
+        " - Title\n"
+        " - People and Organizations\n"
+        " - Approximate Date\n"
+        " - Abstract\n"
+        " - Description\n"
+        " - Language\n"
+        " - Publisher\n"
+        " - Date\n"
+        " - Rights\n"
+        " - Source\n"
+        " - Subject\n"
+        " - Format Genre\n"
+        " - Repository\n"
+        " - Special Collections\n"
+        " - University Archives\n"
+        " - Time Span\n"
+        " - Date Digital\n"
+        " - Digitization Specification\n"
+        " - Original Handle\n"
+        " - Rights Summary\n"
+        " - Accessibility Summary\n"
+        " - Legacy Subjects\n\n"
+        "⚠️ Output one valid JSON object only. No markdown, no backticks, no explanation. "
+        "If a field is missing, use null."
+    )
 
     prompts = [
         {"role": "system", "content": system_prompt},
@@ -310,11 +348,24 @@ def gemini_extract(ocr_response):
     content = chat_response.choices[0].message.content
     print("🔍 Gemini raw response:\n", content)
 
+    def strip_code_fence(text):
+        """
+        Removes Markdown-style code fences like ```json ... ```
+        """
+        lines = text.strip().splitlines()
+        if lines[0].strip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        return "\n".join(lines).strip()
+
+    cleaned = strip_code_fence(content)
+
     try:
-        response_dict = json.loads(content)
+        response_dict = json.loads(cleaned)
     except json.JSONDecodeError as e:
         print(f"❌ JSON parsing failed: {e}")
-        return json.dumps({"error": "Model returned invalid JSON", "raw_output": content}, indent=4)
+        return json.dumps({"error": "Model returned invalid JSON", "raw_output": cleaned}, indent=4)
 
     return json.dumps(response_dict, indent=4)
 
