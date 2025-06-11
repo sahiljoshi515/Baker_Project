@@ -1,6 +1,7 @@
 import gradio as gr
 import tiktoken
 from mistral import mistral_ocr
+from textract import textract_ocr
 import os
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -10,6 +11,9 @@ import json
 import markdown2
 import tempfile
 import pypandoc
+import csv
+import time
+import re
 
 # Load environment variables from .env file
 load_dotenv() 
@@ -58,6 +62,8 @@ def run_ocr(files, ocr_engine):
         # Perform OCR
         if ocr_engine == "Mistral":
             file_ocr_response, file_markdown_response = mistral_ocr(pdf_path)
+        elif ocr_engine == "Textract":
+            file_ocr_response, file_markdown_response = textract_ocr(pdf_path)
 
         if not file_ocr_response:
             return f"OCR failed for {pdf_path}."
@@ -88,6 +94,84 @@ def gpt_extract(ocr_response: str) -> str:
 
     return json.dumps(response_dict, indent=4)
 
+def split_by_char_count(text: str, max_chars: int = 3000):
+    chunks = []
+    current = 0
+    while current < len(text):
+        end = min(current + max_chars, len(text))
+        
+        # Optional: Try to split at the last newline before max_chars
+        split_point = text.rfind('\n', current, end)
+        if split_point == -1 or split_point <= current:
+            split_point = end
+        
+        chunks.append(text[current:split_point].strip())
+        current = split_point
+    return chunks
+
+
+def gpt_extract_to_csv(ocr_response: str, csv_path: str = "output.csv"):
+    system_prompt = (
+        "You are an assistant that extracts structured data from OCR text.\n"
+        "From each page, extract all relevant people entries as CSV rows with exactly 7 fields in this order:\n\n"
+        "1. Name of Person\n"
+        "2. Person color (use \"c\" if indicated, otherwise \"null\")\n"
+        "3. Address\n"
+        "4. Residence type or room count (e.g., 'h', 'r', '3 rms', 'b', 'bds')\n"
+        "5. Job title\n"
+        "6. Job name (e.g., company or organization)\n"
+        "7. Job address\n\n"
+        "⚠️ Format rules:\n"
+        "- Output only raw CSV rows, one per line\n"
+        "- Each row must have exactly 7 fields\n"
+        "- If a field is missing or unknown, write \"null\"\n"
+        "- Do NOT include column headers, explanations, or extra commas inside fields\n"
+        "- Output must be valid CSV (use double quotes for all fields)\n\n"
+        "Example row:\n"
+        "\"John Doe\",\"c\",\"123 Main St\",\"3 rms\",\"Manager\",\"ABC Co.\",\"456 Elm St\""
+    )
+
+
+    # Prepare CSV and write headers
+    with open(csv_path, mode='w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(["Name", "(c)", "Address", "h/r/rms/b/bds", "Job", "Job Name", "Job Address"])
+
+    # Split OCR response by page
+    pages = split_by_char_count(ocr_response, max_chars=7000)
+
+    for i, page_text in enumerate(pages):
+        user_prompt = f"Page {i+1} OCR content:\n\n{page_text}\n\nExtract the data as a CSV row."
+
+        try:
+            chat_response = openai.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.4,
+            )
+
+            csv_output = chat_response.choices[0].message.content.strip()
+            print(csv_output)  # Log full response
+            rows = list(csv.reader(csv_output.splitlines()))
+            valid_rows = [row for row in rows if len(row) == 7]
+
+            if not valid_rows:
+                print(f"⚠️ Page {i+1} returned no valid rows.")
+            else:
+                with open(csv_path, mode='a', newline='') as csvfile:
+                    writer = csv.writer(csvfile)
+                    writer.writerows(valid_rows)
+                print(f"✅ Processed page {i+1} with {len(valid_rows)} row(s).")
+
+        except Exception as e:
+            print(f"Error processing page {i+1}: {e}")
+
+        time.sleep(5)  # Delay between requests
+
+    return json.dumps({"status": "CSV extraction completed", "file": csv_path}, indent=4)
 
 def deepseek_extract(ocr_response):
     system_prompt = "You are an assistant that specializes in filling json forms with OCR data. Please fill accurate entries in the fields provided and output a json file only!"
@@ -108,6 +192,68 @@ def deepseek_extract(ocr_response):
     response_dict = json.loads(chat_response.choices[0].message.content)
 
     return json.dumps(response_dict, indent=4)
+
+def deepseek_extract_to_csv(ocr_response: str, csv_path: str = "output.csv"):
+    system_prompt = (
+        "You are an assistant that extracts structured data from OCR text.\n"
+        "From each page, extract all relevant individual person records as CSV rows with exactly 7 fields in this order:\n\n"
+        "1. Full Name of Person\n"
+        "2. Person color (use \"c\" if indicated, otherwise \"null\")\n"
+        "3. Address\n"
+        "4. Residence type or room count (e.g., 'h', 'r', '3 rms', 'b', 'bds')\n"
+        "5. Job title\n"
+        "6. Job name (e.g., company or organization)\n"
+        "7. Job address\n\n"
+        "⚠️ Format rules:\n"
+        "- Output only raw CSV rows, one per line\n"
+        "- Each row must have exactly 7 fields\n"
+        "- If a field is missing or unknown, write \"null\"\n"
+        "- Do NOT include column headers, explanations, or extra commas inside fields\n"
+        "- Output must be valid CSV (use double quotes for all fields)\n\n"
+        "Example row:\n"
+        "\"John Doe\",\"c\",\"123 Main St\",\"3 rms\",\"Manager\",\"ABC Co.\",\"456 Elm St\""
+    )
+
+    # Prepare CSV and write headers
+    with open(csv_path, mode='w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(["Name", "(c)", "Address", "h/r/rms/b/bds", "Job", "Job Name", "Job Address"])
+
+    # Split OCR response by page
+    pages = split_by_char_count(ocr_response, max_chars=4000)
+
+    for i, page_text in enumerate(pages):
+        user_prompt = f"Page {i+1} OCR content:\n\n{page_text}\n\nExtract the data as a CSV row."
+
+        try:
+            chat_response = deep_client.chat.completions.create(
+                model="deepseek-chat",  # or another model name
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.3,  # Lower for more deterministic output
+            )
+
+            csv_output = chat_response.choices[0].message.content.strip()
+            print(csv_output)  # Log full response
+            rows = list(csv.reader(csv_output.splitlines()))
+            valid_rows = [row for row in rows if len(row) == 7]
+
+            if not valid_rows:
+                print(f"⚠️ Page {i+1} returned no valid rows.")
+            else:
+                with open(csv_path, mode='a', newline='') as csvfile:
+                    writer = csv.writer(csvfile)
+                    writer.writerows(valid_rows)
+                print(f"✅ Processed page {i+1} with {len(valid_rows)} row(s).")
+
+        except Exception as e:
+            print(f"Error processing page {i+1}: {e}")
+
+        time.sleep(5)  # Delay between requests
+
+    return json.dumps({"status": "CSV extraction completed", "file": csv_path}, indent=4)
 
 def claude_extract(ocr_response):
     system_prompt = "You are an assistant that specializes in filling json forms with OCR data. Please fill accurate entries in the fields provided and output a json file only!"
@@ -146,6 +292,32 @@ def itemize_with_gemini(ocr_response):
     )
 
     return response.choices[0].message.content
+
+def gemini_extract(ocr_response):
+    system_prompt = "You are an assistant that specializes in filling json forms with OCR data. Please fill accurate entries in the fields provided and output a json file only!"
+    user_prompt = f"This is a pdf's OCR in markdown:\n\n{ocr_response}\n.\n" + "Convert this into a sensible structured json response containing doc_id,  Title, Language, Subject, Format, Genre, Administration, People and Organizations, Time Span, Date, Summary"
+
+    prompts = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt}
+    ]
+
+    chat_response = gemini_via_openai_client.chat.completions.create(
+        model="gemini-2.0-flash-exp",
+        messages=prompts
+    )
+
+    content = chat_response.choices[0].message.content
+    print("🔍 Gemini raw response:\n", content)
+
+    try:
+        response_dict = json.loads(content)
+    except json.JSONDecodeError as e:
+        print(f"❌ JSON parsing failed: {e}")
+        return json.dumps({"error": "Model returned invalid JSON", "raw_output": content}, indent=4)
+
+    return json.dumps(response_dict, indent=4)
+
 
 def markdown_to_pdf(markdown_text):
     # Convert markdown to HTML
@@ -191,6 +363,8 @@ def extract_metadata(ocr_response, llm_engine):
         metadata = gpt_extract(ocr_response)
     elif llm_engine == "Claude":
         metadata = claude_extract(ocr_response)
+    elif llm_engine == "Gemini":
+        metadata = gemini_extract(ocr_response)
     
     if not metadata:
         return f"Failed to extract metadata using {llm_engine}."
@@ -223,7 +397,7 @@ def main():
             )
 
             engine_dropdown = gr.Dropdown(
-                choices=["Mistral"],
+                choices=["Mistral", "Textract"],
                 label="🧠 OCR Engine",
                 info="Choose the engine for text extraction",
                 interactive=True
@@ -255,7 +429,7 @@ def main():
         gr.Markdown("### 🧠 Step 2B: Extract Metadata with an LLM")
 
         llm_dropdown = gr.Dropdown(
-            choices=["DeepSeek", "GPT-4", "Claude"],
+            choices=["DeepSeek", "GPT-4", "Claude", "Gemini"],
             label="🤖 LLM Engine",
             interactive=False,
             info="Select a model to generate structured metadata"
