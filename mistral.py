@@ -53,12 +53,13 @@ def mistral_ocr(pdf_path) -> str:
         wait_time **2
       time.sleep(wait_time)
       continue
-    return "failed"
+
+  if(it == 5):
+      return "failed"
     
-  pdf_text = pdf_response.pages[0].markdown
   
-  markdown, markdown_display = get_combined_markdown(pdf_response)
-  return markdown, markdown_display
+  pages, markdown_display = get_combined_markdown(pdf_response)
+  return pages, markdown_display
   # print("--------")
   # print("num input tokens: ")
   num_tokens = num_tokens_by_tiktoken(markdown)
@@ -116,7 +117,7 @@ def get_combined_markdown(ocr_response: OCRResponse) -> str:
   # print("done getting combined markdown")
   # print(markdowns)
 
-  return "\n\n".join(markdowns), "\n\n".join(markdownToDisplay)
+  return markdowns, "\n\n".join(markdownToDisplay)
 
 
 """
