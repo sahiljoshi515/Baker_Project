@@ -1,9 +1,24 @@
-1. I split the strings from ground truth into individual words/tokens, and then iterate through the benchmarked file word/tokens per column, and see if there is an approximate match by using fuzzy string matching. If there is a match then we move on to calculate the recall for that entry, and if the recall is greater than a threshold say 75% then we output a match for that column.
-2. Is there a specific number you have in mind for the threshold. With 75% as the threshold we are getting the following results. If we set the threshold to 70% then we will have better results, so it depends. In the end, there is no way we can compare this apples to apples, so it will be approx, but I see definitely decent similarity with what we have so far!
+People and Organizations (Accuracy @ 70% recall):
 
-                   Column  Match %  Matches  Total
-                    Title   59.41      464     781
-         People and Org     49.04      383     781
-              Description    94.37     737    781
-                     Date    74.01      578    781
-                  Subject    92.06      719    781
+matches: 
+0.6197183098591549
+
+
+missed count for longer entries: 
+22
+
+
+missed count for shorter entries: 
+275
+
+
+Date:
+
+ACCURACY   CORRECT TOTAL
+74.01      578    781
+
+
+
+
+
+
