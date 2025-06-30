@@ -8,6 +8,8 @@ from mistral import mistral_ocr
 from markdown2 import markdown  # or mistune, markdown-it-py, etc.
 from weasyprint import HTML as WeasyHTML     # for HTML → PDF conversion
 from itemize import itemize_with_gemini
+from extract import deepseek_extract, gemini_extract, gpt_extract
+import json
 
 # HomePage
 @ui.page('/')
@@ -166,7 +168,7 @@ def extraction_tool():
 
             with ui.row().classes('w-full items-end gap-4'):
                 llm_dropdown = ui.select(
-                    options=["DeepSeek", "GPT-4", "Claude", "Gemini"],
+                    options=["DeepSeek", "GPT-4", "Gemini"],
                     label="🤖 LLM Engine",
                     value="DeepSeek"
                 ).classes('flex-grow')
@@ -174,7 +176,7 @@ def extraction_tool():
                 extract_btn = ui.button('Generate JSON', color='purple').classes('w-48')
 
             with ui.expansion('📑 View Metadata JSON').classes('w-full mt-4'):
-                json_output = ui.json_editor({'status': 'No data yet'}).classes('w-full')
+                json_output = ui.json_editor({'content': {'json': {}}}).classes('w-full')
 
     # Button Actions
     async def run_ocr_click():
@@ -205,10 +207,11 @@ def extraction_tool():
             if not file_path:
                 ui.notify(f"Path for {file.name} not found!")
                 continue
+            loop = asyncio.get_running_loop()
             if selected_engine == "Mistral":
-                text = mistral_ocr(file_path)
+                text = await loop.run_in_executor(None, mistral_ocr, file_path)
             elif selected_engine == "Textract":
-                text = textract_ocr(file_path)
+                text = await loop.run_in_executor(None, textract_ocr, file_path)
             else:
                 ui.notify(f"Unknown OCR engine: {selected_engine}", type='negative')
                 continue
@@ -238,9 +241,10 @@ def extraction_tool():
 
         try:
             ui.notify(f"Itemizing using {selected_method}...")
+            loop = asyncio.get_running_loop()
             if selected_method == "Gemini":
                 # Step 1: Get markdown content from Gemini
-                itemized_markdown = itemize_with_gemini(ocr_response)
+                itemized_markdown = await loop.run_in_executor(None, itemize_with_gemini, ocr_response)
 
                 # Step 2: Convert markdown to HTML
                 html_content = markdown(itemized_markdown)
@@ -274,19 +278,39 @@ def extraction_tool():
     
     itemize_btn.on_click(itemize_click)
     
-    def extract_click():
+    async def extract_click():
+        if not ocr_response:
+            ui.notify("Please run OCR first", type='negative')
+            return
+        
+        selected_llm = llm_dropdown.value
         extract_btn.disable()
+        spinner_overlay.visible = True
+        ui.notify(f"Extracting metadata using {selected_llm}...")
+        await asyncio.sleep(0.1)  # Give UI time to refresh
         # Simulate extraction
-        json_output.update({
-            "document": {
-                "title": "Sample Document",
-                "author": "John Doe",
-                "date": str(datetime.now()),
-                "key_points": ["Point 1", "Point 2", "Point 3"]
-            }
-        })
-        ui.notify("Metadata extraction complete!")
-        extract_btn.enable()
+        loop = asyncio.get_running_loop()
+        try:
+            if selected_llm == "Gemini":
+                result_json = await loop.run_in_executor(None, gemini_extract, ocr_response)
+            elif selected_llm == "DeepSeek":
+                result_json = await loop.run_in_executor(None, deepseek_extract, ocr_response)
+            elif selected_llm == "GPT-4":
+                result_json = await loop.run_in_executor(None, gpt_extract, ocr_response)
+            else:
+                ui.notify(f"Unknown engine: {selected_llm}", type='negative')
+                return
+
+            json_output.props['properties']['content']['json'] = result_json
+            json_output.update()
+            ui.notify("✅ Metadata extraction complete!")
+
+        except Exception as e:
+            ui.notify(f"❌ Extraction failed: {e}", type='negative')
+
+        finally:
+            spinner_overlay.visible = False
+            extract_btn.enable()
     
     extract_btn.on_click(extract_click)
 
