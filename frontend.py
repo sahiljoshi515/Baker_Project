@@ -1,15 +1,17 @@
 from nicegui import ui
 from datetime import datetime
+# import axios
 import asyncio
 from io import BytesIO
 import os
-from textract import textract_ocr
+# from textract import textract_ocr
 from mistral import mistral_ocr
 from markdown2 import markdown  # or mistune, markdown-it-py, etc.
 from weasyprint import HTML as WeasyHTML     # for HTML → PDF conversion
 from itemize import itemize_with_gemini
 from extract import deepseek_extract, gemini_extract, gpt_extract
 import json
+import httpx
 
 # HomePage
 @ui.page('/')
@@ -34,7 +36,11 @@ def page_home():
                 ui.label('Search for Documents').classes('text-lg font-semibold')
                 
                 # Search inputs
-                keyword_input = ui.input(placeholder='Search by keyword...') \
+                subject_input = ui.input(placeholder='Search by Subject...') \
+                    .classes('w-full')
+                
+                # Search inputs
+                people_input = ui.input(placeholder='Search by People...') \
                     .classes('w-full')
                 
                 date_input = ui.date(value=datetime.now()) \
@@ -46,17 +52,17 @@ def page_home():
                 # Search button
                 def handle_search():
                     search_params = {
-                        'keyword': keyword_input.value,
+                        'subject': subject_input.value,
+                        'people': people_input.value,
                         'date': date_input.value,
                         'collection': collection_input.value
                     }
                     ui.notify(f"Searching with: {search_params}")
-                    # Add your search logic here
-                    ui.navigate.to('/extract')  # Navigate to process page
+                    # ES logic 
                 
                 ui.button('Search', on_click=handle_search) \
                     .classes('w-full bg-blue-600 text-white hover:bg-blue-600')
-                
+
 # Extraction Page
 @ui.page('/extract')
 def extraction_tool():
@@ -76,21 +82,28 @@ def extraction_tool():
             ui.label('Processing...').classes('text-white mt-4')
 
 
-    def handle_upload(e):
+    async def handle_upload(e):
         if not e.name.endswith('.pdf'):
             ui.notify("Only PDF files are allowed!", type='negative')
             return
+        
+        # send PDF to backend to process (POST REQUEST)
+        """
+        UploadFile has the following attributes:
+        filename: A str with the original file name that was uploaded (e.g. myimage.jpg).
+        content_type: A str with the content type (MIME type / media type) (e.g. image/jpeg).
+        file: A SpooledTemporaryFile (a file-like object). This is the actual Python file object that you can pass directly to other functions or libraries that expect a "file-like" object.
+        """
+        f = {'file': e.content}
+        async with httpx.AsyncClient() as client:
+            r = await client.post('http://localhost:8000/upload', files = f)
 
-        os.makedirs('uploads', exist_ok=True)
-        path = f'uploads/{e.name}'
+        if r.status_code == 200:
+            ui.notify(f"File uploaded: {e.name}")
+        else:
+            ui.notify(f"error: {r}")
+        # "error: <Response [422 Unprocessable Entity]>
 
-        with open(path, 'wb') as f:
-            f.write(e.content.read())
-
-        uploaded_files.append(e)  # keep track of Upload object
-        uploaded_file_paths[e.name] = path  # store path
-
-        ui.notify(f"File uploaded: {e.name}")
 
     # Header
     with ui.header().classes('bg-blue-900 text-white p-4 shadow'):
@@ -124,195 +137,195 @@ def extraction_tool():
                     on_upload=handle_upload
                 ).classes('flex-grow')
 
-                engine_dropdown = ui.select(
-                    options=["Textract", "Mistral"],
-                    label="🧠 OCR Engine",
-                    value="Textract"
-                ).classes('w-52')
+                # engine_dropdown = ui.select(
+                #     options=["Textract", "Mistral"],
+                #     label="🧠 OCR Engine",
+                #     value="Textract"
+                # ).classes('w-52')
 
-            run_ocr_btn = ui.button('Extract Text', color='primary').classes('mt-4 w-full')
-            ocr_status = ui.label('Status: Ready').classes('text-sm text-gray-500 mt-2')
+            # run_ocr_btn = ui.button('Extract Text', color='primary').classes('mt-4 w-full')
+            # ocr_status = ui.label('Status: Ready').classes('text-sm text-gray-500 mt-2')
 
-            with ui.expansion('📄 View OCR Output').classes('w-full mt-4'):
-                markdown_display = ui.markdown('No results yet').classes('p-3 bg-gray-50 rounded')
+            # with ui.expansion('📄 View OCR Output').classes('w-full mt-4'):
+            #     markdown_display = ui.markdown('No results yet').classes('p-3 bg-gray-50 rounded')
 
         # Step 2A - Itemize
-        with ui.card().classes('w-full p-5 border border-gray-200 rounded-lg shadow-sm'):
-            ui.label('Step 2A: Itemize Document').classes('text-lg font-semibold')
+        # with ui.card().classes('w-full p-5 border border-gray-200 rounded-lg shadow-sm'):
+        #     ui.label('Step 2A: Itemize Document').classes('text-lg font-semibold')
 
-            with ui.row().classes('w-full items-end gap-4'):
-                item_method = ui.select(
-                    options=["Gemini", "Hash-based", "Clustering"],
-                    label="🧩 Method",
-                    value="Gemini"
-                ).classes('flex-grow')
+        #     with ui.row().classes('w-full items-end gap-4'):
+        #         item_method = ui.select(
+        #             options=["Gemini", "Hash-based", "Clustering"],
+        #             label="🧩 Method",
+        #             value="Gemini"
+        #         ).classes('flex-grow')
 
-                itemize_btn = ui.button('Itemize', color='green').classes('w-48')
+        #         itemize_btn = ui.button('Itemize', color='green').classes('w-48')
 
         # Step 2B - Tagging
-        with ui.card().classes('w-full p-5 border border-gray-200 rounded-lg shadow-sm'):
-            ui.label('Step 2B: Tag PDF Content').classes('text-lg font-semibold')
+        # with ui.card().classes('w-full p-5 border border-gray-200 rounded-lg shadow-sm'):
+        #     ui.label('Step 2B: Tag PDF Content').classes('text-lg font-semibold')
 
-            with ui.row().classes('w-full items-end gap-4'):
-                tag_method = ui.select(
-                    options=["Adobe"],
-                    label="🏷️ Tagging Method",
-                    value="Adobe"
-                ).classes('flex-grow')
+        #     with ui.row().classes('w-full items-end gap-4'):
+        #         tag_method = ui.select(
+        #             options=["Adobe"],
+        #             label="🏷️ Tagging Method",
+        #             value="Adobe"
+        #         ).classes('flex-grow')
 
-                tag_btn = ui.button('Tag', color='green').classes('w-48')
+        #         tag_btn = ui.button('Tag', color='green').classes('w-48')
 
         # Step 3 - Metadata Extraction
-        with ui.card().classes('w-full p-5 border border-gray-200 rounded-lg shadow-sm'):
-            ui.label('Step 3: Extract Structured Metadata').classes('text-lg font-semibold')
+        # with ui.card().classes('w-full p-5 border border-gray-200 rounded-lg shadow-sm'):
+        #     ui.label('Step 3: Extract Structured Metadata').classes('text-lg font-semibold')
 
-            with ui.row().classes('w-full items-end gap-4'):
-                llm_dropdown = ui.select(
-                    options=["DeepSeek", "GPT-4", "Gemini"],
-                    label="🤖 LLM Engine",
-                    value="DeepSeek"
-                ).classes('flex-grow')
+        #     with ui.row().classes('w-full items-end gap-4'):
+        #         llm_dropdown = ui.select(
+        #             options=["DeepSeek", "GPT-4", "Gemini"],
+        #             label="🤖 LLM Engine",
+        #             value="DeepSeek"
+        #         ).classes('flex-grow')
 
-                extract_btn = ui.button('Generate JSON', color='purple').classes('w-48')
+        #         extract_btn = ui.button('Generate JSON', color='purple').classes('w-48')
 
-            with ui.expansion('📑 View Metadata JSON').classes('w-full mt-4'):
-                json_output = ui.json_editor({'content': {'json': {}}}).classes('w-full')
+        #     with ui.expansion('📑 View Metadata JSON').classes('w-full mt-4'):
+        #         json_output = ui.json_editor({'content': {'json': {}}}).classes('w-full')
 
     # Button Actions
-    async def run_ocr_click():
-        global ocr_response
-        if not uploaded_files:
-            ui.notify("Please upload PDF files first!", type='negative')
-            return
+    # async def run_ocr_click():
+    #     global ocr_response
+    #     if not uploaded_files:
+    #         ui.notify("Please upload PDF files first!", type='negative')
+    #         return
 
-        run_ocr_btn.disable()
-        spinner_overlay.visible = True  # Show full-screen overlay
-        ocr_status.set_text('Processing...')
-        await asyncio.sleep(0.1)  # Let UI refresh
+    #     run_ocr_btn.disable()
+    #     spinner_overlay.visible = True  # Show full-screen overlay
+    #     ocr_status.set_text('Processing...')
+    #     await asyncio.sleep(0.1)  # Let UI refresh
 
-        selected_engine = engine_dropdown.value
-        pdf_files = [f for f in uploaded_files if f.name.endswith('.pdf')]
+    #     selected_engine = engine_dropdown.value
+    #     pdf_files = [f for f in uploaded_files if f.name.endswith('.pdf')]
 
-        if not pdf_files:
-            ui.notify("No valid PDF files found!", type='negative')
-            ocr_status.set_text('Failed')
-            spinner_overlay.style('display: none')  # Hide overlay
-            run_ocr_btn.enable()
-            return
+    #     if not pdf_files:
+    #         ui.notify("No valid PDF files found!", type='negative')
+    #         ocr_status.set_text('Failed')
+    #         spinner_overlay.style('display: none')  # Hide overlay
+    #         run_ocr_btn.enable()
+    #         return
 
-        all_text = ''
-        for file in pdf_files:
-            # Route to the selected OCR function
-            file_path = uploaded_file_paths.get(file.name)
-            if not file_path:
-                ui.notify(f"Path for {file.name} not found!")
-                continue
-            loop = asyncio.get_running_loop()
-            if selected_engine == "Mistral":
-                text = await loop.run_in_executor(None, mistral_ocr, file_path)
-            elif selected_engine == "Textract":
-                text = await loop.run_in_executor(None, textract_ocr, file_path)
-            else:
-                ui.notify(f"Unknown OCR engine: {selected_engine}", type='negative')
-                continue
+    #     all_text = ''
+    #     for file in pdf_files:
+    #         # Route to the selected OCR function
+    #         file_path = uploaded_file_paths.get(file.name)
+    #         if not file_path:
+    #             ui.notify(f"Path for {file.name} not found!")
+    #             continue
+    #         loop = asyncio.get_running_loop()
+    #         if selected_engine == "Mistral":
+    #             text = await loop.run_in_executor(None, mistral_ocr, file_path)
+    #         # elif selected_engine == "Textract":
+    #         #     text = await loop.run_in_executor(None, textract_ocr, file_path)
+    #         else:
+    #             ui.notify(f"Unknown OCR engine: {selected_engine}", type='negative')
+    #             continue
 
-            all_text += f"### {file.name}\n{text}\n\n"
+    #         all_text += f"### {file.name}\n{text}\n\n"
 
-        spinner_overlay.visible = False  # Hide after work completes
-        ocr_response = all_text
-        markdown_display.set_content(f'## OCR Results\n\n{all_text}')
-        ocr_status.set_text('Completed')
-        run_ocr_btn.enable()
-        itemize_btn.enable()
-        tag_btn.enable()
-        extract_btn.enable()
+    #     spinner_overlay.visible = False  # Hide after work completes
+    #     ocr_response = all_text
+    #     markdown_display.set_content(f'## OCR Results\n\n{all_text}')
+    #     ocr_status.set_text('Completed')
+    #     run_ocr_btn.enable()
+    #     itemize_btn.enable()
+    #     tag_btn.enable()
+    #     extract_btn.enable()
     
-    run_ocr_btn.on_click(run_ocr_click)
+    # run_ocr_btn.on_click(run_ocr_click)
     
-    async def itemize_click():
-        if not ocr_response:
-            ui.notify("Please run OCR first", type='negative')
-            return
+    # async def itemize_click():
+    #     if not ocr_response:
+    #         ui.notify("Please run OCR first", type='negative')
+    #         return
 
-        selected_method = item_method.value
-        itemize_btn.disable()
-        spinner_overlay.visible = True
-        await asyncio.sleep(0.1)  # Give UI time to refresh
+    #     selected_method = item_method.value
+    #     itemize_btn.disable()
+    #     spinner_overlay.visible = True
+    #     await asyncio.sleep(0.1)  # Give UI time to refresh
 
-        try:
-            ui.notify(f"Itemizing using {selected_method}...")
-            loop = asyncio.get_running_loop()
-            if selected_method == "Gemini":
-                # Step 1: Get markdown content from Gemini
-                itemized_markdown = await loop.run_in_executor(None, itemize_with_gemini, ocr_response)
+    #     try:
+    #         ui.notify(f"Itemizing using {selected_method}...")
+    #         loop = asyncio.get_running_loop()
+    #         if selected_method == "Gemini":
+    #             # Step 1: Get markdown content from Gemini
+    #             itemized_markdown = await loop.run_in_executor(None, itemize_with_gemini, ocr_response)
 
-                # Step 2: Convert markdown to HTML
-                html_content = markdown(itemized_markdown)
+    #             # Step 2: Convert markdown to HTML
+    #             html_content = markdown(itemized_markdown)
 
-                # # Step 3: Convert HTML to PDF
-                output_dir = 'outputs'
-                os.makedirs(output_dir, exist_ok=True)
-                pdf_path = os.path.join(output_dir, 'itemized.pdf')
-                WeasyHTML(string=html_content).write_pdf(pdf_path)
+    #             # # Step 3: Convert HTML to PDF
+    #             output_dir = 'outputs'
+    #             os.makedirs(output_dir, exist_ok=True)
+    #             pdf_path = os.path.join(output_dir, 'itemized.pdf')
+    #             WeasyHTML(string=html_content).write_pdf(pdf_path)
 
-                # # Step 4: Offer the file for download
-                ui.download(pdf_path, filename='itemized.pdf')
-                ui.notify("Itemized PDF ready!")
+    #             # # Step 4: Offer the file for download
+    #             ui.download(pdf_path, filename='itemized.pdf')
+    #             ui.notify("Itemized PDF ready!")
 
-            elif selected_method == "Hash-based":
-                ui.notify("Hash-based itemization is not yet implemented", type='warning')
+    #         elif selected_method == "Hash-based":
+    #             ui.notify("Hash-based itemization is not yet implemented", type='warning')
 
-            elif selected_method == "Clustering":
-                ui.notify("Clustering-based itemization is not yet implemented", type='warning')
+    #         elif selected_method == "Clustering":
+    #             ui.notify("Clustering-based itemization is not yet implemented", type='warning')
 
-            else:
-                ui.notify(f"Unknown method: {selected_method}", type='negative')
+    #         else:
+    #             ui.notify(f"Unknown method: {selected_method}", type='negative')
             
-        except Exception as e:
-            ui.notify(f"Itemization failed: {e}", type='negative')
+    #     except Exception as e:
+    #         ui.notify(f"Itemization failed: {e}", type='negative')
 
-        finally:
-            spinner_overlay.visible = False
-            itemize_btn.enable()
+    #     finally:
+    #         spinner_overlay.visible = False
+    #         itemize_btn.enable()
 
     
-    itemize_btn.on_click(itemize_click)
+    # itemize_btn.on_click(itemize_click)
     
-    async def extract_click():
-        if not ocr_response:
-            ui.notify("Please run OCR first", type='negative')
-            return
+    # async def extract_click():
+    #     if not ocr_response:
+    #         ui.notify("Please run OCR first", type='negative')
+    #         return
         
-        selected_llm = llm_dropdown.value
-        extract_btn.disable()
-        spinner_overlay.visible = True
-        ui.notify(f"Extracting metadata using {selected_llm}...")
-        await asyncio.sleep(0.1)  # Give UI time to refresh
-        # Simulate extraction
-        loop = asyncio.get_running_loop()
-        try:
-            if selected_llm == "Gemini":
-                result_json = await loop.run_in_executor(None, gemini_extract, ocr_response)
-            elif selected_llm == "DeepSeek":
-                result_json = await loop.run_in_executor(None, deepseek_extract, ocr_response)
-            elif selected_llm == "GPT-4":
-                result_json = await loop.run_in_executor(None, gpt_extract, ocr_response)
-            else:
-                ui.notify(f"Unknown engine: {selected_llm}", type='negative')
-                return
+    #     selected_llm = llm_dropdown.value
+    #     extract_btn.disable()
+    #     spinner_overlay.visible = True
+    #     ui.notify(f"Extracting metadata using {selected_llm}...")
+    #     await asyncio.sleep(0.1)  # Give UI time to refresh
+    #     # Simulate extraction
+    #     loop = asyncio.get_running_loop()
+    #     try:
+    #         if selected_llm == "Gemini":
+    #             result_json = await loop.run_in_executor(None, gemini_extract, ocr_response)
+    #         elif selected_llm == "DeepSeek":
+    #             result_json = await loop.run_in_executor(None, deepseek_extract, ocr_response)
+    #         elif selected_llm == "GPT-4":
+    #             result_json = await loop.run_in_executor(None, gpt_extract, ocr_response)
+    #         else:
+    #             ui.notify(f"Unknown engine: {selected_llm}", type='negative')
+    #             return
 
-            json_output.props['properties']['content']['json'] = result_json
-            json_output.update()
-            ui.notify("✅ Metadata extraction complete!")
+    #         json_output.props['properties']['content']['json'] = result_json
+    #         json_output.update()
+    #         ui.notify("✅ Metadata extraction complete!")
 
-        except Exception as e:
-            ui.notify(f"❌ Extraction failed: {e}", type='negative')
+    #     except Exception as e:
+    #         ui.notify(f"❌ Extraction failed: {e}", type='negative')
 
-        finally:
-            spinner_overlay.visible = False
-            extract_btn.enable()
+    #     finally:
+    #         spinner_overlay.visible = False
+    #         extract_btn.enable()
     
-    extract_btn.on_click(extract_click)
+    # extract_btn.on_click(extract_click)
 
 # 🚀 Start the server
 ui.run()
