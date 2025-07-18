@@ -5,13 +5,18 @@ import asyncio
 from io import BytesIO
 import os
 # from textract import textract_ocr
-from mistral import mistral_ocr
+from backend.mistral import mistral_ocr
 from markdown2 import markdown  # or mistune, markdown-it-py, etc.
-from weasyprint import HTML as WeasyHTML     # for HTML → PDF conversion
+# from weasyprint import HTML as WeasyHTML     # for HTML → PDF conversion
 from itemize import itemize_with_gemini
 from extract import deepseek_extract, gemini_extract, gpt_extract
 import json
 import httpx
+from urllib.error import HTTPError
+
+markdown_display = ""
+all_pages = []
+
 
 # HomePage
 @ui.page('/')
@@ -66,9 +71,9 @@ def page_home():
 # Extraction Page
 @ui.page('/extract')
 def extraction_tool():
-    uploaded_file_paths = {}
-    uploaded_files = []
-    markdown_display = None
+    # uploaded_file_paths = {}
+    # uploaded_files = []
+    # markdown_display = None
 
     spinner_overlay = ui.row().classes(
         'fixed inset-0 bg-black bg-opacity-50 z-50 justify-center items-center'
@@ -94,15 +99,28 @@ def extraction_tool():
         content_type: A str with the content type (MIME type / media type) (e.g. image/jpeg).
         file: A SpooledTemporaryFile (a file-like object). This is the actual Python file object that you can pass directly to other functions or libraries that expect a "file-like" object.
         """
-        f = {'file': e.content}
+        f = {
+            'e': (e.name, e.content, 'application/pdf')  # 'e' must match parameter name in your FastAPI route
+        }       
         async with httpx.AsyncClient() as client:
-            r = await client.post('http://localhost:8000/upload', files = f)
+            resp = await client.post('http://localhost:8000/upload', files = f, timeout=None)
+            if resp.status_code == 422:
+                ui.notify(f"File {e.name} uploaded in improper format")
+                # ui.notify(f"error: {resp}")
+            else:
+                ui.notify(f"file {e.name} uploaded")
 
-        if r.status_code == 200:
-            ui.notify(f"File uploaded: {e.name}")
-        else:
-            ui.notify(f"error: {r}")
-        # "error: <Response [422 Unprocessable Entity]>
+        # data = resp.json()
+        # pages = data["pages"]
+        markdown_to_display = resp.json()
+        print(markdown_to_display)
+        if markdown_to_display['pages'] == None:
+            ui.notify(f"Failed to process PDF with error {markdown_to_display}")
+
+        # change if scaling to handle multiple PDF's 
+        all_pages = markdown_to_display['pages']
+        markdown_display.set_content(markdown_to_display['markdown'])
+         
 
 
     # Header
@@ -132,7 +150,7 @@ def extraction_tool():
 
             with ui.row().classes('w-full items-end gap-4'):
                 files_input = ui.upload(
-                    label="📂 Upload PDF(s)", 
+                    label="📂 Upload PDF(s) for OCR'ing", 
                     multiple=True,
                     on_upload=handle_upload
                 ).classes('flex-grow')
@@ -146,8 +164,8 @@ def extraction_tool():
             # run_ocr_btn = ui.button('Extract Text', color='primary').classes('mt-4 w-full')
             # ocr_status = ui.label('Status: Ready').classes('text-sm text-gray-500 mt-2')
 
-            # with ui.expansion('📄 View OCR Output').classes('w-full mt-4'):
-            #     markdown_display = ui.markdown('No results yet').classes('p-3 bg-gray-50 rounded')
+            with ui.expansion('📄 View OCR Output').classes('w-full mt-4'):
+                markdown_display = ui.markdown("In Progress").classes('p-3 bg-gray-50 rounded')
 
         # Step 2A - Itemize
         # with ui.card().classes('w-full p-5 border border-gray-200 rounded-lg shadow-sm'):

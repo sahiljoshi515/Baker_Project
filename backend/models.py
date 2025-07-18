@@ -6,27 +6,29 @@ from sqlmodel import Field, Session, SQLModel, create_engine, select, Relationsh
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware # import here
 
+from mistral import mistral_ocr
+import httpx
+import typing
 
-    
 
 """
 TEAM TABLE
 id, name, collection, title, people+orgs, location, description, date, subjects, accessibility
 """
 class DocBase(SQLModel):
-    collection: str | None = Field(index = True, default= None)
-    entities: str | None = Field(default=None) # separated by , or |
+    collection: typing.Union[str, None] = Field(index = True, default= None)
+    entities: typing.Union[str, None] = Field(default=None) # separated by , or |
     # index not enabled on following 2
-    # location: str | None = Field(default = None)
-    description: str | None = Field(default=None)
-    date: str | None = Field(default = None, index = True)  # expect 'YYYYMM'
-    subject_lst: str | None = Field(default=None) # separated by , or |
+    # location: typing.Union[str, None] = Field(default = None)
+    description: typing.Union[str, None] = Field(default=None)
+    date: typing.Union[str, None] = Field(default = None, index = True)  # expect 'YYYYMM'
+    subject_lst: typing.Union[str, None] = Field(default=None) # separated by , or |
     # index not enabled
-    accessibility: str | None = Field(default=None)
+    accessibility: typing.Union[str, None] = Field(default=None)
 
 # Actual data model
 class Doc(DocBase, table = True):
-    id: int | None = Field(default=None, primary_key=True)
+    id: typing.Union[int, None] = Field(default=None, primary_key=True)
     doc_name: str 
 
 # to be returned to API user
@@ -90,10 +92,20 @@ app.add_middleware(
 
 
 @app.post("/upload")
-async def handle_upload(file: UploadFile):
+async def handle_upload(e: UploadFile):
     # collection, entities, location, description, date, subject_lst, accessibility
     # print("receieved")
-    return {"filename": file.filename}
+    # return {"file":e.filename}
+    # ocr pdf
+    ocr_input = await e.read() # Read the content
+    pages, markdown_to_display = mistral_ocr(e.filename, ocr_input)
+    if pages == None:
+        return pages, "Failed to OCR"
+    # add to Elastic Search
+    # ...
+    # Send Post Request from backend to frontend
+    return {"pages":pages, "markdown": markdown_to_display}
+
 
 
 """
