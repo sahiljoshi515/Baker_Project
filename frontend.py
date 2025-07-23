@@ -5,7 +5,7 @@ import asyncio
 from io import BytesIO
 import os
 # from textract import textract_ocr
-from backend.mistral import mistral_ocr
+from backend.services.mistral import mistral_ocr
 from markdown2 import markdown  # or mistune, markdown-it-py, etc.
 # from weasyprint import HTML as WeasyHTML     # for HTML → PDF conversion
 from itemize import itemize_with_gemini
@@ -113,9 +113,10 @@ def extraction_tool():
         # data = resp.json()
         # pages = data["pages"]
         markdown_to_display = resp.json()
-        print(markdown_to_display)
-        if markdown_to_display['pages'] == None:
-            ui.notify(f"Failed to process PDF with error {markdown_to_display}")
+        # print(markdown_to_display)
+        all_pages = markdown_to_display['pages']
+        if all_pages == None:
+            ui.notify(f"Failed to process PDF with error {markdown_to_display['markdown']}")
 
         # change if scaling to handle multiple PDF's 
         all_pages = markdown_to_display['pages']

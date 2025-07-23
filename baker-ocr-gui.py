@@ -1,6 +1,6 @@
 import gradio as gr
 import tiktoken
-from mistral import mistral_ocr
+from backend.services.mistral import mistral_ocr
 # from textract import textract_ocr
 import os
 from dotenv import load_dotenv
