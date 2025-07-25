@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 import logging
 
-from ...services.mistral import mistral_ocr
+from services.mistral import mistral_ocr
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/pdf", tags=["ocr"])

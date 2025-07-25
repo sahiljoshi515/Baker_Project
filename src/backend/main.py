@@ -8,8 +8,9 @@ from contextlib import asynccontextmanager
 from sqlmodel import Field, Session, SQLModel, create_engine, select, Relationship
 from typing import Annotated, List
 
-from .core.config import settings
-from .api.routes import ocr
+from api.routes import ocr
+
+from core.config import settings
 
 logging.basicConfig(
     level=logging.INFO,
@@ -105,7 +106,7 @@ frontend_dir = Path("frontend.py")
 
 if __name__ == "__main__":
     uvicorn.run(
-        "src.backend.main:app",
+        "main:app",
         host=settings.host,
         port=settings.port,
         reload=settings.debug

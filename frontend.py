@@ -5,10 +5,9 @@ import asyncio
 from io import BytesIO
 import os
 # from textract import textract_ocr
-from backend.services.mistral import mistral_ocr
 from markdown2 import markdown  # or mistune, markdown-it-py, etc.
 # from weasyprint import HTML as WeasyHTML     # for HTML → PDF conversion
-from itemize import itemize_with_gemini
+# from itemize import itemize_with_gemini
 from extract import deepseek_extract, gemini_extract, gpt_extract
 import json
 import httpx
@@ -103,7 +102,7 @@ def extraction_tool():
             'e': (e.name, e.content, 'application/pdf')  # 'e' must match parameter name in your FastAPI route
         }       
         async with httpx.AsyncClient() as client:
-            resp = await client.post('http://localhost:8000/upload', files = f, timeout=None)
+            resp = await client.post('http://localhost:8000/api/pdf/ocr', files = f, timeout=None)
             if resp.status_code == 422:
                 ui.notify(f"File {e.name} uploaded in improper format")
                 # ui.notify(f"error: {resp}")
@@ -195,20 +194,20 @@ def extraction_tool():
         #         tag_btn = ui.button('Tag', color='green').classes('w-48')
 
         # Step 3 - Metadata Extraction
-        # with ui.card().classes('w-full p-5 border border-gray-200 rounded-lg shadow-sm'):
-        #     ui.label('Step 3: Extract Structured Metadata').classes('text-lg font-semibold')
+        with ui.card().classes('w-full p-5 border border-gray-200 rounded-lg shadow-sm'):
+            ui.label('Step 3: Extract Structured Metadata').classes('text-lg font-semibold')
 
-        #     with ui.row().classes('w-full items-end gap-4'):
-        #         llm_dropdown = ui.select(
-        #             options=["DeepSeek", "GPT-4", "Gemini"],
-        #             label="🤖 LLM Engine",
-        #             value="DeepSeek"
-        #         ).classes('flex-grow')
+            with ui.row().classes('w-full items-end gap-4'):
+                llm_dropdown = ui.select(
+                    options=["DeepSeek", "GPT-4", "Gemini"],
+                    label="🤖 LLM Engine",
+                    value="DeepSeek"
+                ).classes('flex-grow')
 
-        #         extract_btn = ui.button('Generate JSON', color='purple').classes('w-48')
+                extract_btn = ui.button('Generate JSON', color='purple').classes('w-48')
 
-        #     with ui.expansion('📑 View Metadata JSON').classes('w-full mt-4'):
-        #         json_output = ui.json_editor({'content': {'json': {}}}).classes('w-full')
+            with ui.expansion('📑 View Metadata JSON').classes('w-full mt-4'):
+                json_output = ui.json_editor({'content': {'json': {}}}).classes('w-full')
 
     # Button Actions
     # async def run_ocr_click():
