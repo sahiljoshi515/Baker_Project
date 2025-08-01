@@ -8,13 +8,14 @@ import os
 from markdown2 import markdown  # or mistune, markdown-it-py, etc.
 # from weasyprint import HTML as WeasyHTML     # for HTML → PDF conversion
 # from itemize import itemize_with_gemini
-from extract import deepseek_extract, gemini_extract, gpt_extract
+# from backend.services.extract import deepseek_extract, gemini_extract, gpt_extract
 import json
 import httpx
 from urllib.error import HTTPError
 
 markdown_display = ""
 all_pages = []
+json_output = ""
 
 
 # HomePage
@@ -118,10 +119,25 @@ def extraction_tool():
             ui.notify(f"Failed to process PDF with error {markdown_to_display['markdown']}")
 
         # change if scaling to handle multiple PDF's 
-        all_pages = markdown_to_display['pages']
         markdown_display.set_content(markdown_to_display['markdown'])
          
-
+    async def metadata_extraction() -> int:
+        text = "\n".join(all_pages)  
+        print(text)
+        input = {
+            'ocr_output':text  
+        }       
+        async with httpx.AsyncClient() as client:
+            resp = await client.post('http://localhost:8000/api/pdf/extract', params = input, timeout=None)
+            body = resp.json()
+            if resp.status_code == 422:
+                ui.notify(f"metadata extraction unable to be completed: {body['detail']}")
+                print(body['detail'])
+                # ui.notify(f"error: {resp}")
+            else:
+                ui.notify(f"metadata extraction finished and pdf added to database")
+        # display to user
+        json_output = json.dumps(body["metadata"])
 
     # Header
     with ui.header().classes('bg-blue-900 text-white p-4 shadow'):
@@ -152,7 +168,7 @@ def extraction_tool():
                 files_input = ui.upload(
                     label="📂 Upload PDF(s) for OCR'ing", 
                     multiple=True,
-                    on_upload=handle_upload
+                    on_upload=handle_upload,
                 ).classes('flex-grow')
 
                 # engine_dropdown = ui.select(
@@ -198,13 +214,18 @@ def extraction_tool():
             ui.label('Step 3: Extract Structured Metadata').classes('text-lg font-semibold')
 
             with ui.row().classes('w-full items-end gap-4'):
+
                 llm_dropdown = ui.select(
                     options=["DeepSeek", "GPT-4", "Gemini"],
                     label="🤖 LLM Engine",
-                    value="DeepSeek"
+                    value="DeepSeek",
                 ).classes('flex-grow')
 
-                extract_btn = ui.button('Generate JSON', color='purple').classes('w-48')
+                extract_btn = ui.button(
+                    'Generate JSON',
+                    color='purple',
+                    on_click=metadata_extraction    # ← runs metadata_extraction on click
+                ).classes('w-48')
 
             with ui.expansion('📑 View Metadata JSON').classes('w-full mt-4'):
                 json_output = ui.json_editor({'content': {'json': {}}}).classes('w-full')

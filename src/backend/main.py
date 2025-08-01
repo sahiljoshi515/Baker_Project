@@ -9,6 +9,7 @@ from sqlmodel import Field, Session, SQLModel, create_engine, select, Relationsh
 from typing import Annotated, List
 
 from api.routes import ocr
+from api.routes import extraction
 
 from core.config import settings
 
@@ -49,7 +50,7 @@ async def lifespan(app: FastAPI):
     create_db_and_tables()
     # add code for when you are stopping the application
     yield
-    drop_db_and_tables()
+    # drop_db_and_tables()
 
 app = FastAPI(
     title=settings.api_title,
@@ -88,6 +89,8 @@ app.add_middleware(
 )
 
 app.include_router(ocr.router)
+app.include_router(extraction.router)
+
 
 @app.get("/api/health")
 async def health_check():

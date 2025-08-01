@@ -14,7 +14,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(filename='myapp.log', level=logging.DEBUG)
-logger.info('Started')
+logger.info('Started OCR')
 
 
 # Load environment variables from .env file
@@ -84,7 +84,7 @@ def mistral_ocr(file_name, content) -> tuple[List[str], str]:
   if pages == None:
       return pages, markdown_display
 
-  num_tokens = num_tokens_by_tiktoken(" ".join(pages))
+  num_tokens = num_tokens_by_tiktoken(markdown_display)
 
   if(num_tokens > 100000):
     logger.debug("Doc too large")

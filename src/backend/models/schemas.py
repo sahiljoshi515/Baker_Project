@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware # import here
 from backend.services.mistral import mistral_ocr
 import httpx
 import typing
+from pydantic import BaseModel
 
 
 """
@@ -38,6 +39,9 @@ class DocPublic(DocBase):
 class DocCreate(DocBase):
     doc_name: str
 
+"""Extraction API request body"""
+class ExtractRequest(BaseModel):
+    ocr_output: str
 
 # """
 # CRUD
