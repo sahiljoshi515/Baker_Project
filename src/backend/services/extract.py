@@ -13,7 +13,6 @@ load_dotenv("/Users/amarkanaka/repos/Baker_Project/.env")
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 openai.api_key = OPENAI_API_KEY
-logger.info(f"API KEY: {openai.api_key}")
 client = OpenAI()
 
 
@@ -46,7 +45,7 @@ async def gpt_extract(ocr_response: str):
         "You are an assistant that fills structured JSON forms based on OCR text input. "\
         "You must return a single, valid JSON object with only the specified fields. "\
         "Do not include any explanation, markdown, or formatting like triple backticks. "\
-        f"If a field is missing or unknown, set its value to null. Return the fields {fields_str} for the following doc:" \
+        f"If a field is missing or unknown, set its value to null. Fill in the fields {fields_str}." \
     )
 
     # Split into paragraph chunks
@@ -75,7 +74,8 @@ async def gpt_extract(ocr_response: str):
     # )
 
     try:
-        chat_response = await openai.chat.completions.create(
+        # logger.info(f"Filling in fields for doc:\n {ocr_response}")
+        chat_response = openai.chat.completions.create(
             model="gpt-4",
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -84,9 +84,10 @@ async def gpt_extract(ocr_response: str):
             temperature=0.1,
         )
 
+        # logger.info(f"response object: {chat_response}")
         content = chat_response.choices[0].message.content
+        # logger.info(f"type: {type(content)}")
         # logger.info(f"content: {content}")
-        data = json.dumps(content.strip('` \n'))
 
         # for field in expected_fields:
         #     if field in chunk_data and chunk_data[field]:
@@ -109,7 +110,7 @@ async def gpt_extract(ocr_response: str):
     #     if combined_response[field] is None:
     #         combined_response[field] = "Null"
 
-    return data  # or: return json.dumps(combined_response, indent=4)
+    return json.dumps(content, indent = 2)
 
 
 # def deepseek_extract(ocr_response, chunk_size=10000):

@@ -6,7 +6,7 @@ from sqlmodel import Field, Session, SQLModel, create_engine, select, Relationsh
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware # import here
 
-from backend.services.mistral import mistral_ocr
+# from backend.services.mistral import mistral_ocr
 import httpx
 import typing
 from pydantic import BaseModel

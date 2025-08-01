@@ -13,16 +13,17 @@ import json
 
 
 @router.post("/extract")
-async def metadata_extraction(input: ExtractRequest):
-    # logger.info(f'ocr sent to backend')
+async def metadata_extraction(request: ExtractRequest):
+    text = request.ocr_output
+    # logger.info(f'ocr sent to backend:\n{text}')
     # collection, entities, location, description, date, subject_lst, accessibility
-    metadata = await gpt_extract(input["ocr_output"])
-    logger.info(metadata)
+    metadata = await gpt_extract(text)
+    # logger.info(f"metadata: {metadata}")
     if metadata == "":
-        return "Failed to OCR"
+        return "Failed to Extract"
     # add to Elastic Search
     # ...
-    # serialize
-    data = json.loads(metadata)
+    # deserialize
+    # data = json.loads(metadata)
     # Send Post Request from backend to frontend
-    return {"metadata":data}
+    return {"metadata":metadata}
