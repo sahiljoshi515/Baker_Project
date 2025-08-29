@@ -13,9 +13,10 @@ import json
 import httpx
 from urllib.error import HTTPError
 
-markdown_display = ""
+# markdown_display = ""
 all_pages = []
-json_output = ""
+file_name = []
+# json_output = ""
 
 
 # HomePage
@@ -114,30 +115,40 @@ def extraction_tool():
         # pages = data["pages"]
         markdown_to_display = resp.json()
         # print(markdown_to_display)
-        all_pages = markdown_to_display['pages']
+        for page in markdown_to_display['pages']:
+            all_pages.append(page)
         if all_pages == None:
             ui.notify(f"Failed to process PDF with error {markdown_to_display['markdown']}")
-
+        file_name.append(e.name)
         # change if scaling to handle multiple PDF's 
         markdown_display.set_content(markdown_to_display['markdown'])
          
     async def metadata_extraction() -> int:
-        text = "\n".join(all_pages)  
-        print(text)
-        input = {
-            'ocr_output':text  
-        }       
+        ocr = "\n".join(all_pages)  
+        # print(f"ocr: {ocr}")
         async with httpx.AsyncClient() as client:
-            resp = await client.post('http://localhost:8000/api/pdf/extract', params = input, timeout=None)
+            resp = await client.post('http://localhost:8000/api/pdf/extract', json = {
+            'ocr_output':ocr, 'doc_name':file_name[0]},
+            timeout=None)
             body = resp.json()
-            if resp.status_code == 422:
+            if resp.status_code == 422 or resp.status_code == 404:
                 ui.notify(f"metadata extraction unable to be completed: {body['detail']}")
                 print(body['detail'])
                 # ui.notify(f"error: {resp}")
+            metadata = body["metadata"]
+            # print(type(metadata))
+            if metadata == None or metadata == "" or  "failed" in metadata:
+                ui.notify(f"extraction failed: {metadata}")
             else:
+                metadata_dict = json.loads(json.loads(metadata))
+                print(metadata_dict)
+                print(type(metadata_dict))
+                metadata_dict["doc_name"] = file_name[0]
                 ui.notify(f"metadata extraction finished and pdf added to database")
-        # display to user
-        json_output = json.dumps(body["metadata"])
+                # display to user
+                json_output.properties["content"]["json"] = metadata_dict
+                json_output.update()
+
 
     # Header
     with ui.header().classes('bg-blue-900 text-white p-4 shadow'):
@@ -228,7 +239,7 @@ def extraction_tool():
                 ).classes('w-48')
 
             with ui.expansion('📑 View Metadata JSON').classes('w-full mt-4'):
-                json_output = ui.json_editor({'content': {'json': {}}}).classes('w-full')
+                json_output = ui.json_editor({'content': {'json': "{}"}}).classes('w-full')
 
     # Button Actions
     # async def run_ocr_click():

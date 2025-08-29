@@ -1,7 +1,7 @@
 from typing import Annotated, List
 import uvicorn
 
-from fastapi import Depends, FastAPI, HTTPException, Query, File, UploadFile
+from fastapi import Depends, FastAPI, HTTPException, Query, File, UploadFile, APIRouter
 from sqlmodel import Field, Session, SQLModel, create_engine, select, Relationship
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware # import here
@@ -10,7 +10,6 @@ from fastapi.middleware.cors import CORSMiddleware # import here
 import httpx
 import typing
 from pydantic import BaseModel
-
 
 """
 TEAM TABLE
@@ -25,7 +24,7 @@ class DocBase(SQLModel):
     date: typing.Union[str, None] = Field(default = None, index = True)  # expect 'YYYYMM'
     subject_lst: typing.Union[str, None] = Field(default=None) # separated by , or |
     # index not enabled
-    accessibility: typing.Union[str, None] = Field(default=None)
+    # accessibility: typing.Union[str, None] = Field(default=None)
 
 # Actual data model
 class Doc(DocBase, table = True):
@@ -42,22 +41,11 @@ class DocCreate(DocBase):
 """Extraction API request body"""
 class ExtractRequest(BaseModel):
     ocr_output: str
+    doc_name:str
 
-# """
-# CRUD
-# """
-
-
-# # submit data (pdf to ocr, itemize, and extract metadata) to update DB
-# @app.post("/process", response_model=DocPublic)
-# def create_db_obj(doc: DocCreate, session: SessionDep):
-#     db_doc = Doc.model_validate(doc)
-#     session.add(db_doc)
-#     session.commit()
-#     session.refresh(db_doc)
-#     # why ???????
-#     return db_doc
-
+"""
+CRUD
+"""
 
 # # retrieve data (in our case, we are retrieving metadata + PDF to serve to users)
 # @app.get("/docs/", response_model= list[DocPublic])

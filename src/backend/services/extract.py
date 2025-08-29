@@ -25,7 +25,7 @@ client = OpenAI()
 #     base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
 # )
 
-async def gpt_extract(ocr_response: str):
+async def gpt_extract(ocr_response: str) -> str:
 
 
     expected_fields = [

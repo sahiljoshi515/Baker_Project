@@ -47,10 +47,12 @@ SessionDep = Annotated[Session, Depends(get_session)]
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # executed before app starts taking requests
+    # try:
     create_db_and_tables()
     # add code for when you are stopping the application
     yield
-    # drop_db_and_tables()
+    # finally:
+    #     drop_db_and_tables()
 
 app = FastAPI(
     title=settings.api_title,
@@ -90,6 +92,8 @@ app.add_middleware(
 
 app.include_router(ocr.router)
 app.include_router(extraction.router)
+# app.include_router(db_add.router)
+
 
 
 @app.get("/api/health")
