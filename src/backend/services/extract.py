@@ -29,8 +29,8 @@ async def gpt_extract(ocr_response: str) -> str:
 
 
     expected_fields = [
-        "Title", "People and Organizations",
-        "Description", "Date", "Subject"
+        "title", "people_and_organizations",
+        "description", "date", "subject"
     ]
 
     fields_str = str(expected_fields)

@@ -10,6 +10,7 @@ from typing import Annotated, List
 
 from api.routes import ocr
 from api.routes import extraction
+from api.routes import db_add
 
 from core.config import settings
 
@@ -92,7 +93,7 @@ app.add_middleware(
 
 app.include_router(ocr.router)
 app.include_router(extraction.router)
-# app.include_router(db_add.router)
+app.include_router(db_add.router)
 
 
 

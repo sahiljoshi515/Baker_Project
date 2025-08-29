@@ -72,9 +72,6 @@ def page_home():
 # Extraction Page
 @ui.page('/extract')
 def extraction_tool():
-    # uploaded_file_paths = {}
-    # uploaded_files = []
-    # markdown_display = None
 
     spinner_overlay = ui.row().classes(
         'fixed inset-0 bg-black bg-opacity-50 z-50 justify-center items-center'
@@ -107,14 +104,10 @@ def extraction_tool():
             resp = await client.post('http://localhost:8000/api/pdf/ocr', files = f, timeout=None)
             if resp.status_code == 422:
                 ui.notify(f"File {e.name} uploaded in improper format")
-                # ui.notify(f"error: {resp}")
             else:
                 ui.notify(f"file {e.name} uploaded")
 
-        # data = resp.json()
-        # pages = data["pages"]
         markdown_to_display = resp.json()
-        # print(markdown_to_display)
         for page in markdown_to_display['pages']:
             all_pages.append(page)
         if all_pages == None:
@@ -125,7 +118,6 @@ def extraction_tool():
          
     async def metadata_extraction() -> int:
         ocr = "\n".join(all_pages)  
-        # print(f"ocr: {ocr}")
         async with httpx.AsyncClient() as client:
             resp = await client.post('http://localhost:8000/api/pdf/extract', json = {
             'ocr_output':ocr, 'doc_name':file_name[0]},
@@ -133,22 +125,26 @@ def extraction_tool():
             body = resp.json()
             if resp.status_code == 422 or resp.status_code == 404:
                 ui.notify(f"metadata extraction unable to be completed: {body['detail']}")
-                print(body['detail'])
-                # ui.notify(f"error: {resp}")
             metadata = body["metadata"]
-            # print(type(metadata))
             if metadata == None or metadata == "" or  "failed" in metadata:
                 ui.notify(f"extraction failed: {metadata}")
             else:
                 metadata_dict = json.loads(json.loads(metadata))
-                print(metadata_dict)
-                print(type(metadata_dict))
                 metadata_dict["doc_name"] = file_name[0]
-                ui.notify(f"metadata extraction finished and pdf added to database")
+                ui.notify(f"metadata extraction finished")
                 # display to user
                 json_output.properties["content"]["json"] = metadata_dict
                 json_output.update()
-
+                # add to database
+                db_resp = await client.post('http://localhost:8000/api/db/process', json = metadata_dict,
+                timeout=None)
+                db_body = db_resp.json()
+                if resp.status_code == 422 or resp.status_code == 404:
+                    ui.notify(f"metadata extraction unable to be completed: {db_body['detail']}")
+                    # print(body['detail'])
+                    # ui.notify(f"error: {resp}")
+                else:
+                    ui.notify(f"added to database")
 
     # Header
     with ui.header().classes('bg-blue-900 text-white p-4 shadow'):

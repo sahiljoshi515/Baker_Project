@@ -16,13 +16,12 @@ TEAM TABLE
 id, name, collection, title, people+orgs, location, description, date, subjects, accessibility
 """
 class DocBase(SQLModel):
-    collection: typing.Union[str, None] = Field(index = True, default= None)
-    entities: typing.Union[str, None] = Field(default=None) # separated by , or |
+    people_and_organizations: typing.Union[str, None] = Field(default=None) # separated by , or |
     # index not enabled on following 2
     # location: typing.Union[str, None] = Field(default = None)
     description: typing.Union[str, None] = Field(default=None)
     date: typing.Union[str, None] = Field(default = None, index = True)  # expect 'YYYYMM'
-    subject_lst: typing.Union[str, None] = Field(default=None) # separated by , or |
+    subject: typing.Union[str, None] = Field(default=None) # separated by , or |
     # index not enabled
     # accessibility: typing.Union[str, None] = Field(default=None)
 
@@ -36,7 +35,7 @@ class DocPublic(DocBase):
     id: int
 
 class DocCreate(DocBase):
-    doc_name: str
+    title: str
 
 """Extraction API request body"""
 class ExtractRequest(BaseModel):
