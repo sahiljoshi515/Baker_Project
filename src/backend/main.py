@@ -10,7 +10,8 @@ from typing import Annotated, List
 
 from api.routes import ocr
 from api.routes import extraction
-from api.routes import db_add
+# from api.routes import db_add
+from models.schemas import Doc, DocBase, DocCreate, DocPublic
 
 from core.config import settings
 
@@ -93,7 +94,7 @@ app.add_middleware(
 
 app.include_router(ocr.router)
 app.include_router(extraction.router)
-app.include_router(db_add.router)
+# app.include_router(db_add.router)
 
 
 
@@ -101,6 +102,16 @@ app.include_router(db_add.router)
 async def health_check():
     """Health check endpoint"""
     return {"status": "healthy"}
+
+# submit data (pdf to ocr, itemize, and extract metadata) to update DB
+@app.post("api/db/process", response_model=DocPublic)
+def create_db_obj(doc: DocCreate, session: SessionDep):
+    db_doc = Doc.model_validate(doc)
+    session.add(db_doc)
+    session.commit()
+    session.refresh(db_doc)
+    # why ???????
+    return db_doc
 
 # frontend_dir = Path(f"src/frontend/{settings.collection_type}/dist")
 frontend_dir = Path("frontend.py")
