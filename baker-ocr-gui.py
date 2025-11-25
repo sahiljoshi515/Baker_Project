@@ -1,22 +1,19 @@
 import gradio as gr
 import tiktoken
-from backend.services.mistral import mistral_ocr
-# from textract import textract_ocr
+from mistral import mistral_ocr
+from textract import textract_ocr
 import os
 from dotenv import load_dotenv
 from openai import OpenAI
-# import anthropic
+import anthropic
 import openai
 import json
 import markdown2
-from weasyprint import HTML
 import tempfile
-import google.generativeai as genai
-import numpy as np
-from PyPDF2 import PdfReader, PdfWriter
-import shutil
-
-# import re
+import pypandoc
+import csv
+import time
+import re
 
 # Load environment variables from .env file
 load_dotenv() 
@@ -24,27 +21,21 @@ load_dotenv()
 # ------ OPENAI -------
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 openai.api_key = OPENAI_API_KEY
-client = OpenAI()
 
 # ------ DEEPSEEK -------
-# DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
-# deep_client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url="https://api.deepseek.com")
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+deep_client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url="https://api.deepseek.com")
 
 # ------ ANTHROPIC -------
-# ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
-# claude = anthropic.Anthropic()
+ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
+claude = anthropic.Anthropic()
 
 # ------ GEMINI -------
 GEMINI_API_KEY = os.getenv('GOOGLE_API_KEY')
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel(model_name="gemini-2.0-flash-exp")
-# response = model.generate_content('Teach me about how an LLM works')
-
-# print(response.text)
-# gemini_via_openai_client = OpenAI(
-#     api_key=GEMINI_API_KEY, 
-#     base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
-# )
+gemini_via_openai_client = OpenAI(
+    api_key=GEMINI_API_KEY, 
+    base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+)
 
 
 def run_ocr(files, ocr_engine):
@@ -53,7 +44,7 @@ def run_ocr(files, ocr_engine):
 
     Args:
         files (list): List of PDF files as file objects
-        ocr_engine (str): OCR engine to use (Mistral, or Textract)
+        ocr_engine (str): OCR engine to use (Mistral)
 
     Returns:
         str: Summaries of the PDF files
@@ -61,7 +52,7 @@ def run_ocr(files, ocr_engine):
     if not files:
         return "No files uploaded."
 
-    ocr_response = []  # Initialize empty string to concatenate all OCR responses
+    ocr_response = ""  # Initialize empty string to concatenate all OCR responses
     markdown_response = ""
 
     for file in files:
@@ -71,132 +62,334 @@ def run_ocr(files, ocr_engine):
         # Perform OCR
         if ocr_engine == "Mistral":
             file_ocr_response, file_markdown_response = mistral_ocr(pdf_path)
-        # elif ocr_engine == "Textract":
-        #     file_ocr_response = textract_ocr(pdf_path)
+        elif ocr_engine == "Textract":
+            file_ocr_response, file_markdown_response = textract_ocr(pdf_path)
 
         if not file_ocr_response:
             return f"OCR failed for {pdf_path}."
         
-        # ocr_response += "\n\n" + file_ocr_response  # Concatenate the OCR result
+        ocr_response += "\n\n" + file_ocr_response  # Concatenate the OCR result
         markdown_response += "\n\n" + file_markdown_response
 
         print(f"Processing {pdf_path} with {ocr_engine} OCR completed!")
-        ocr_response += file_ocr_response  # Concatenate the OCR result
+        ocr_response += "\n\n" + file_ocr_response  # Concatenate the OCR result
         
     yield "OCR COMPLETED", ocr_response, markdown_response
 
-
 def gpt_extract(ocr_response: str) -> str:
     system_prompt = "You are an assistant that specializes in filling json forms with OCR data. Please fill accurate entries in the fields provided and output a json file only!"
-    user_prompt = f"This is the OCR of pdf(s) in markdown:\n\n{ocr_response}\n.\n" + "Convert this into a sensible structured json response containing doc_id,  Title, Language, Subject, Format, Genre, Administration, People and Organizations, Time Span, Date, Summary. You may need multiple summaries if there are multiple documents."
+    user_prompt = f"This is a pdf's OCR in markdown:\n\n{ocr_response}\n.\n" + "Convert this into a sensible structured json response containing doc_id,  Title, Language, Subject, Format, Genre, Administration, People and Organizations, Time Span, Date, Summary"
 
-
-    response = client.responses.create(
-        model="gpt-4o",
-        input= system_prompt + " " + user_prompt
+    chat_response = openai.chat.completions.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        temperature=0.5,
     )
-
-    # print(response.output_text)
-    # chat_response = openai.chat.completions.create(
-    #     model="gpt-4",
-    #     messages=[
-    #         {"role": "system", "content": system_prompt},
-    #         {"role": "user", "content": user_prompt}
-    #     ],
-    #     temperature=0.5,
-    # )
 
     # Parse and return JSON response
-    # response_dict = json.loads(chat_response.choices[0].message.content, strict=False)
-    # try:
-    #     response_dict = json.loads(response.output_text)
-    #     return json.dumps(response_dict, indent=4)
-    # except:
-    return response.output_text
+    response_dict = json.loads(chat_response.choices[0].message.content, strict=False)
 
-enc = tiktoken.encoding_for_model("gpt-4-turbo")
-def num_tokens_by_tiktoken(text: str) -> int:
-    return len(enc.encode(text))
+    return json.dumps(response_dict, indent=4)
 
-def segment_and_split_pdf(file, ocr_pages, threshold=0.51):
-    """
-    Segments the input PDF using similarity of page embeddings and returns a zip of split PDFs.
-    Args:
-        file: File object from gr.File (uploaded PDF)
-        ocr_pages: List[str] (each page's OCR text)
-        threshold: Similarity threshold to segment
-
-    Returns:
-        Path to .zip file containing all splits
-    """
-    # Compute embeddings for each page
-    print("segmenting pdf ...\n")
-    for idx in range(len(ocr_pages)):
-        num_tokens = num_tokens_by_tiktoken(ocr_pages[idx])
-        num_tokens_left = num_tokens
-        curr_num = 0
-        insert_idx = idx
-        text = ocr_pages[idx]
-        while(num_tokens_left > 8192):
-            curr_text = text[curr_num:curr_num + 8192]
-            ocr_pages.insert(insert_idx, curr_text)
-            curr_num += 8192
-            num_tokens_left -= 8192
-            insert_idx += 1
+def split_by_char_count(text: str, max_chars: int = 3000):
+    chunks = []
+    current = 0
+    while current < len(text):
+        end = min(current + max_chars, len(text))
         
-    embeddings = [embed_text(page) for page in ocr_pages]
-
-    # Compute similarities between consecutive pages
-    similarities = [np.dot(embeddings[i], embeddings[i+1]) for i in range(len(embeddings)-1)]
-    boundaries = [1 if sim < threshold else 0 for sim in similarities]
-    boundaries.append(0 if boundaries[-1] == 0 else 1)  # Make sure boundaries list matches pages
-
-
-    # Split PDF based on boundaries
-    reader = PdfReader(file[0].name)
-    num_pages = len(reader.pages)
-    if len(boundaries) != num_pages:
-        raise ValueError(f"Mismatch: boundaries ({len(boundaries)}) vs pages ({num_pages})")
-    out_dir = tempfile.mkdtemp(prefix="splits_")
-    split_paths = []
-    start = 0
-    doc_num = 1
-
-    for i, flag in enumerate(boundaries):
-        if flag == 1:
-            writer = PdfWriter()
-            for j in range(start, i+1):
-                writer.add_page(reader.pages[j])
-            output_path = os.path.join(out_dir, f"split_{doc_num:03d}.pdf")
-            with open(output_path, "wb") as out_f:
-                writer.write(out_f)
-            split_paths.append(output_path)
-            doc_num += 1
-            start = i + 1
-
-    # Zip all splits
-    zip_path = os.path.join(out_dir, "all_splits.zip")
-    shutil.make_archive(zip_path.replace('.zip', ''), 'zip', out_dir)
-    return zip_path
+        # Optional: Try to split at the last newline before max_chars
+        split_point = text.rfind('\n', current, end)
+        if split_point == -1 or split_point <= current:
+            split_point = end
+        
+        chunks.append(text[current:split_point].strip())
+        current = split_point
+    return chunks
 
 
-    
-def embed_text(text):
-    response = openai.embeddings.create(
-        model="text-embedding-3-small",
-        input=text
+def gpt_extract_to_csv(ocr_response: str, csv_path: str = "output.csv"):
+    system_prompt = (
+        "You are an assistant that extracts structured data from OCR text.\n"
+        "From each page, extract all relevant people entries as CSV rows with exactly 7 fields in this order:\n\n"
+        "1. Name of Person\n"
+        "2. Person color (use \"c\" if indicated, otherwise \"null\")\n"
+        "3. Address\n"
+        "4. Residence type or room count (e.g., 'h', 'r', '3 rms', 'b', 'bds')\n"
+        "5. Job title\n"
+        "6. Job name (e.g., company or organization)\n"
+        "7. Job address\n\n"
+        "⚠️ Format rules:\n"
+        "- Output only raw CSV rows, one per line\n"
+        "- Each row must have exactly 7 fields\n"
+        "- If a field is missing or unknown, write \"null\"\n"
+        "- Do NOT include column headers, explanations, or extra commas inside fields\n"
+        "- Output must be valid CSV (use double quotes for all fields)\n\n"
+        "Example row:\n"
+        "\"John Doe\",\"c\",\"123 Main St\",\"3 rms\",\"Manager\",\"ABC Co.\",\"456 Elm St\""
     )
-    return response.data[0].embedding
+
+
+    # Prepare CSV and write headers
+    with open(csv_path, mode='w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(["Name", "(c)", "Address", "h/r/rms/b/bds", "Job", "Job Name", "Job Address"])
+
+    # Split OCR response by page
+    pages = split_by_char_count(ocr_response, max_chars=7000)
+
+    for i, page_text in enumerate(pages):
+        user_prompt = f"Page {i+1} OCR content:\n\n{page_text}\n\nExtract the data as a CSV row."
+
+        try:
+            chat_response = openai.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.4,
+            )
+
+            csv_output = chat_response.choices[0].message.content.strip()
+            print(csv_output)  # Log full response
+            rows = list(csv.reader(csv_output.splitlines()))
+            valid_rows = [row for row in rows if len(row) == 7]
+
+            if not valid_rows:
+                print(f"⚠️ Page {i+1} returned no valid rows.")
+            else:
+                with open(csv_path, mode='a', newline='') as csvfile:
+                    writer = csv.writer(csvfile)
+                    writer.writerows(valid_rows)
+                print(f"✅ Processed page {i+1} with {len(valid_rows)} row(s).")
+
+        except Exception as e:
+            print(f"Error processing page {i+1}: {e}")
+
+        time.sleep(5)  # Delay between requests
+
+    return json.dumps({"status": "CSV extraction completed", "file": csv_path}, indent=4)
+
+def deepseek_extract(ocr_response):
+    system_prompt = "You are an assistant that specializes in filling json forms with OCR data. Please fill accurate entries in the fields provided and output a json file only!"
+    user_prompt = f"This is a pdf's OCR in markdown:\n\n{ocr_response}\n.\n" + "Convert this into a sensible structured json response containing doc_id,  Title, Language, Subject, Format, Genre, Administration, People and Organizations, Time Span, Date, Summary"
+
+    # Get structured response from model
+    chat_response = deep_client.chat.completions.create(
+        model="deepseek-chat",  # or another model name
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        response_format={"type": "json_object"},  # If supported
+        temperature=0.3,  # Lower for more deterministic output
+    )
+
+    # Parse and return JSON response
+    response_dict = json.loads(chat_response.choices[0].message.content)
+
+    return json.dumps(response_dict, indent=4)
+
+def deepseek_extract_to_csv(ocr_response: str, csv_path: str = "output.csv"):
+    system_prompt = (
+        "You are an assistant that extracts structured data from OCR text.\n"
+        "From each page, extract all relevant individual person records as CSV rows with exactly 7 fields in this order:\n\n"
+        "1. Full Name of Person\n"
+        "2. Person color (use \"c\" if indicated, otherwise \"null\")\n"
+        "3. Address\n"
+        "4. Residence type or room count (e.g., 'h', 'r', '3 rms', 'b', 'bds')\n"
+        "5. Job title\n"
+        "6. Job name (e.g., company or organization)\n"
+        "7. Job address\n\n"
+        "⚠️ Format rules:\n"
+        "- Output only raw CSV rows, one per line\n"
+        "- Each row must have exactly 7 fields\n"
+        "- If a field is missing or unknown, write \"null\"\n"
+        "- Do NOT include column headers, explanations, or extra commas inside fields\n"
+        "- Output must be valid CSV (use double quotes for all fields)\n\n"
+        "Example row:\n"
+        "\"John Doe\",\"c\",\"123 Main St\",\"3 rms\",\"Manager\",\"ABC Co.\",\"456 Elm St\""
+    )
+
+    # Prepare CSV and write headers
+    with open(csv_path, mode='w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(["Name", "(c)", "Address", "h/r/rms/b/bds", "Job", "Job Name", "Job Address"])
+
+    # Split OCR response by page
+    pages = split_by_char_count(ocr_response, max_chars=4000)
+
+    for i, page_text in enumerate(pages):
+        user_prompt = f"Page {i+1} OCR content:\n\n{page_text}\n\nExtract the data as a CSV row."
+
+        try:
+            chat_response = deep_client.chat.completions.create(
+                model="deepseek-chat",  # or another model name
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.3,  # Lower for more deterministic output
+            )
+
+            csv_output = chat_response.choices[0].message.content.strip()
+            print(csv_output)  # Log full response
+            rows = list(csv.reader(csv_output.splitlines()))
+            valid_rows = [row for row in rows if len(row) == 7]
+
+            if not valid_rows:
+                print(f"⚠️ Page {i+1} returned no valid rows.")
+            else:
+                with open(csv_path, mode='a', newline='') as csvfile:
+                    writer = csv.writer(csvfile)
+                    writer.writerows(valid_rows)
+                print(f"✅ Processed page {i+1} with {len(valid_rows)} row(s).")
+
+        except Exception as e:
+            print(f"Error processing page {i+1}: {e}")
+
+        time.sleep(5)  # Delay between requests
+
+    return json.dumps({"status": "CSV extraction completed", "file": csv_path}, indent=4)
+
+def claude_extract(ocr_response):
+    system_prompt = "You are an assistant that specializes in filling json forms with OCR data. Please fill accurate entries in the fields provided and output a json file only!"
+    user_prompt = f"This is a pdf's OCR in markdown:\n\n{ocr_response}\n.\n" + "Convert this into a sensible structured json response containing doc_id,  Title, Language, Subject, Format, Genre, Administration, People and Organizations, Time Span, Date, Summary"
+    
+    chat_response = claude.messages.create(
+        model="claude-3-5-sonnet-latest",
+        max_tokens=1000,
+        temperature=0.7,
+        system=system_prompt,
+        messages=[
+            {"role": "user", "content": user_prompt},
+        ]
+    )
+    
+    # Parse and return JSON response
+    response_dict = json.loads(chat_response.content[0].text)
+
+    return json.dumps(response_dict, indent=4)
+
+
+def itemize_with_gemini(ocr_response):
+    print("Itemization has started!")
+    system_prompt = """You are an expert document structuring assistant. Your task is to analyze long OCR-scanned text and intelligently group related content into logical sections. 
+    First identify logical sections or documents, then group related pages/content together, finally label those sections intelligently. For each section, extract structured information and present it in markdown format. Only return in markdown format. Please make sure no information is lost, everything from the ocr version should be included."""
+    user_prompt = f"This is a pdf's OCR in markdown:\n\n{ocr_response}\n.\n" + "Convert this into a sensible itemized markdown version of the document."
+
+    prompts = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt}
+    ]
+
+    response = gemini_via_openai_client.chat.completions.create(
+        model="gemini-2.0-flash-exp",
+        messages=prompts
+    )
+
+    return response.choices[0].message.content
+
+def gemini_extract(ocr_response):
+    system_prompt = (
+        "You are an assistant that fills structured JSON forms based on OCR text input. "
+        "You must return a single, valid JSON object with only the specified fields. "
+        "Do not include any explanation, markdown, or formatting like triple backticks. "
+        "If a field is missing or unknown, set its value to null."
+    )
+
+    user_prompt = (
+        f"This is OCR content extracted from a document:\n\n{ocr_response}\n\n"
+        "Please convert this into one structured JSON object with exactly the following fields:\n"
+        " - Asset_Id\n"
+        " - Quartex Unique ID\n"
+        " - Quartex Name\n"
+        " - Collection(s)\n"
+        " - Published URL\n"
+        " - Title\n"
+        " - People and Organizations\n"
+        " - Approximate Date\n"
+        " - Abstract\n"
+        " - Description\n"
+        " - Language\n"
+        " - Publisher\n"
+        " - Date\n"
+        " - Rights\n"
+        " - Source\n"
+        " - Subject\n"
+        " - Format Genre\n"
+        " - Repository\n"
+        " - Special Collections\n"
+        " - University Archives\n"
+        " - Time Span\n"
+        " - Date Digital\n"
+        " - Digitization Specification\n"
+        " - Original Handle\n"
+        " - Rights Summary\n"
+        " - Accessibility Summary\n"
+        " - Legacy Subjects\n\n"
+        "⚠️ Output one valid JSON object only. No markdown, no backticks, no explanation. "
+        "If a field is missing, use null."
+    )
+
+    prompts = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt}
+    ]
+
+    chat_response = gemini_via_openai_client.chat.completions.create(
+        model="gemini-2.0-flash-exp",
+        messages=prompts
+    )
+
+    content = chat_response.choices[0].message.content
+    print("🔍 Gemini raw response:\n", content)
+
+    def strip_code_fence(text):
+        """
+        Removes Markdown-style code fences like ```json ... ```
+        """
+        lines = text.strip().splitlines()
+        if lines[0].strip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        return "\n".join(lines).strip()
+
+    cleaned = strip_code_fence(content)
+
+    try:
+        response_dict = json.loads(cleaned)
+    except json.JSONDecodeError as e:
+        print(f"❌ JSON parsing failed: {e}")
+        return json.dumps({"error": "Model returned invalid JSON", "raw_output": cleaned}, indent=4)
+
+    return json.dumps(response_dict, indent=4)
+
 
 def markdown_to_pdf(markdown_text):
-    # ADDITIONS:
-    # pattern = re.compile()
     # Convert markdown to HTML
     html = markdown2.markdown(markdown_text)
     print("Converting the markdown to PDF!")
-    # Create temporary PDF file
+    # Add PDF-specific formatting options
+    extra_args = [
+        '--pdf-engine=xelatex',  # Better unicode support
+        '--variable', 'geometry:margin=1in',  # Reasonable margins
+        '--variable', 'geometry:a4paper',  # Standard paper size
+        '--variable', 'mainfont=Helvetica'  # Ensures proper font handling
+    ]
+    
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_pdf:
-        HTML(string=html).write_pdf(tmp_pdf.name)
+        pypandoc.convert_text(
+            markdown_text,
+            'pdf',
+            format='md',
+            outputfile=tmp_pdf.name,
+            extra_args=extra_args
+        )
         return tmp_pdf.name
 
 def extract_metadata(ocr_response, llm_engine):
@@ -215,12 +408,14 @@ def extract_metadata(ocr_response, llm_engine):
 
     print(f"Extracting metadata using {llm_engine}...")
 
-    # if llm_engine == "DeepSeek":
-    #     metadata = deepseek_extract(ocr_response)
-    if llm_engine == "GPT-4":
+    if llm_engine == "DeepSeek":
+        metadata = deepseek_extract(ocr_response)
+    elif llm_engine == "GPT-4":
         metadata = gpt_extract(ocr_response)
-    # elif llm_engine == "Claude":
-    #     metadata = claude_extract(ocr_response)
+    elif llm_engine == "Claude":
+        metadata = claude_extract(ocr_response)
+    elif llm_engine == "Gemini":
+        metadata = gemini_extract(ocr_response)
     
     if not metadata:
         return f"Failed to extract metadata using {llm_engine}."
@@ -273,19 +468,19 @@ def main():
             markdown_display = gr.Markdown(label="OCR Results")
 
         # --- Step 2A: Itemize Document with Gemini ---
-        gr.Markdown("### 📊 Step 2A: Itemize Document with OpenAI Embeddings")
+        gr.Markdown("### 📊 Step 2A: Itemize Document with Gemini")
 
-        itemize_btn = gr.Button("📋 Itemize with OpenAI", interactive=False)
-        download_pdf = gr.File(label="📥 Download Itemized PDFS", visible=False)
+        itemize_btn = gr.Button("📋 Itemize with Gemini", interactive=False)
+        download_pdf = gr.File(label="📥 Download Itemized PDF", visible=False)
 
         # --- Hidden: Only needed internally for markdown passing ---
-        # itemized_markdown = gr.Textbox(visible=False)
+        itemized_markdown = gr.Textbox(visible=False)
 
         # --- Step 2B: Metadata Extraction ---
         gr.Markdown("### 🧠 Step 2B: Extract Metadata with an LLM")
 
         llm_dropdown = gr.Dropdown(
-            choices=["DeepSeek", "GPT-4", "Claude"],
+            choices=["DeepSeek", "GPT-4", "Claude", "Gemini"],
             label="🤖 LLM Engine",
             interactive=False,
             info="Select a model to generate structured metadata"
@@ -294,7 +489,7 @@ def main():
         extract_btn = gr.Button("📤 Extract Metadata (JSON)", interactive=False)
 
         with gr.Accordion("🧾 View Extracted Metadata", open=False):
-            json_output = gr.Markdown(label="Structured Metadata")
+            json_output = gr.JSON(label="Structured Metadata")
 
         # --- Wiring ---
         run_ocr_btn.click(
@@ -316,38 +511,22 @@ def main():
         )
 
         itemize_btn.click(
-            fn=segment_and_split_pdf,
-            inputs=[files_input, ocr_done_state],
+            fn=itemize_with_gemini,
+            inputs=[ocr_done_state],
+            outputs=[itemized_markdown]
+        ).then(
+            fn=markdown_to_pdf,
+            inputs=[itemized_markdown],
             outputs=[download_pdf]
         ).then(
-            fn=lambda: gr.update(visible=True),
+            fn=lambda: gr.update(visible=True),  # Make the download button visible
             inputs=None,
             outputs=[download_pdf]
+        ).then(
+            fn=lambda: gr.update(interactive=True),  # Enable the itemize button after process completion
+            inputs=None,
+            outputs=[itemize_btn]
         )
-        # .then(
-        #     fn=markdown_to_pdf,
-        #     inputs=[download_pdf],
-        #     outputs=[download_pdf]
-        # ).then(
-        #     fn=lambda: gr.update(visible=True),  # Make the download button visible
-        #     inputs=None,
-        #     outputs=[download_pdf]
-        # ).then(
-        #     fn=lambda: gr.update(interactive=True),  # Enable the itemize button after process completion
-        #     inputs=None,
-        #     outputs=[itemize_btn]
-        # )
-
-
-        # itemize_btn.click(
-        #     fn=itemize_with_openai,
-        #     inputs=[ocr_done_state],
-        #     outputs=[download_pdf]
-        # ).then(
-        #     fn=lambda: gr.update(visible=True),
-        #     inputs=None,
-        #     outputs=[download_pdf]
-        # )
 
         extract_btn.click(
             fn=extract_metadata,
