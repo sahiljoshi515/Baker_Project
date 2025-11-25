@@ -2,7 +2,6 @@ from mistralai import Mistral
 from pdf2image import convert_from_path
 import boto3
 import io
-import json
 import os
 from dotenv import load_dotenv
 # Load environment variables from .env file

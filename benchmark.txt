@@ -1,0 +1,25 @@
+GEMINI BENCHMARK with WER-Bow, CER, EM 
+
+                  Column  Match %    Matches  Total
+                   Title    24.19 200.567058    829
+People and Organizations    42.94 356.000000    829         ***
+             Description    35.15 291.422534    829
+                    Date    72.01 597.000000    829         ***
+                 Subject    18.59 154.150000    829
+
+GEMINI BENCHMARK with Cosine Similarity, CER, EM 
+
+...
+
+GPT Benchmark with WER-Bow, CER, EM 
+                  Column  Match %    Matches  Total
+                   Title    25.13 208.322700    829         
+People and Organizations    57.18 474.000000    829         ***
+             Description    21.26 176.235889    829
+                    Date    70.93 588.000000    829         ***
+                 Subject    21.95 181.950000    829
+
+
+
+
+
