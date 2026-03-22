@@ -11,7 +11,7 @@ class DocumentRepository:
 
     def create(self, document: DocCreate) -> Doc:
         db_doc = Doc.model_validate(document)
-        # we generate a unique ID primary key to store our document
+        # we generate a unique ID primary key automatically to store our document
         try:
             self.session.add(db_doc)
             self.session.commit()

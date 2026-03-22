@@ -18,7 +18,7 @@ class MetadataFields(SQLModel):
 class Doc(MetadataFields, table=True):
     __tablename__ = "documents"
 
-    id: int = Field(primary_key=True)
+    id: int | None = Field(default = None, primary_key=True)
     doc_name: str
 
 
