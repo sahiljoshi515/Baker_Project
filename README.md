@@ -4,6 +4,18 @@ This tool helps you:
 
 - Extract text from PDF files using a selected OCR engine
 - Convert that text into structured metadata using an LLM
+- Store that metadata in our database
+- Search texts in our database based on keywords
+
+Our Public API is as follows:
+
+- POST /api/extraction/ocr accepts multipart/form-data with one PDF and returns OcrResult { documentName, pageCount, pages, markdown }.
+
+- POST /api/extraction/metadata accepts MetadataRequest { documentName, ocrText } and returns MetadataResponse { metadata }.
+
+<!-- - POST /api/search/query accepts SearchQuery { subject?, people?, date?, collection? } and returns SearchResponse { items, total, implementationStatus }, with implementationStatus: "stub" until Elasticsearch is added. -->
+
+More information can be found on OpenAPI (the automatic interactive documentation systems).
 
 ## Getting Started
 
@@ -29,12 +41,18 @@ Follow these steps to run the application:
   pip install -r requirements.txt
   ```
 
-4. **Run the application**
+4. **Set Environment Variables**
 
-  ```bash
-  python3 baker-ocr-gui.py
-  ```
-The Gradio UI will launch at: http://localhost:7860
+- APP_ENV, DEBUG, HOST, PORT
+- DATABASE_URL
+- OPENAI_API_KEY
+- MISTRAL_API_KEY
+- CORS_ORIGINS
+- FRONTEND_DIST_DIR
+- ELASTICSEARCH_URL
+
+5. **Run the application**
+
 
 ## Options Available
 ### OCR Engine
@@ -44,10 +62,4 @@ The Gradio UI will launch at: http://localhost:7860
 ### Metadata Extraction (LLMs)
 
 - ChatGPT – OpenAI GPT-4-based extraction
-- Claude – Anthropic's Claude model
-- Deepseek – Efficient and scalable LLM
 
-### Itemization Models
-
-- Gemini – Google's multimodal model
-- Custom Trained Model (To be added)

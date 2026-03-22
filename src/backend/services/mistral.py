@@ -1,230 +1,106 @@
-from mistralai import Mistral, DocumentURLChunk, ImageURLChunk, TextChunk
-from mistralai.models import OCRResponse
-from typing import List
-import base64
-from pathlib import Path
-import json
-import tiktoken
-from dotenv import load_dotenv
-import os
 import time
-import logging
-from pathlib import Path
+from typing import Callable
+
+import tiktoken
+from mistralai import DocumentURLChunk, ImageURLChunk, Mistral
+from mistralai.models import OCRResponse
+
+from core.exceptions import ConfigurationError, OCRProcessingError
 
 
-logger = logging.getLogger(__name__)
-logging.basicConfig(filename='myapp.log', level=logging.DEBUG)
-logger.info('Started OCR')
+class MistralOCRProvider:
+    def __init__(
+        self,
+        *,
+        api_key: str | None,
+        model_name: str,
+        max_tokens: int = 100000,
+    ) -> None:
+        self.api_key = api_key
+        self.model_name = model_name
+        self.max_tokens = max_tokens
+        self._client: Mistral | None = None
 
-
-# Load environment variables from .env file
-load_dotenv("/Users/amarkanaka/repos/Baker_Project/.env", verbose=True, override=True)  # By default looks for .env file in current directory
-
-# ------ MISTRAL -------
-MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
-logger.debug(f"api key: {MISTRAL_API_KEY}")
-client = Mistral(api_key=MISTRAL_API_KEY)
-
-
-
-def num_tokens_by_tiktoken(text: str) -> int:
-    enc = tiktoken.encoding_for_model("gpt-4-turbo")
-    return len(enc.encode(text))
-  
-
-def mistral_ocr(file_name, content) -> tuple[List[str], str]:
-  # load file
-  try:
-    Path("example.bin").write_bytes(content)
-    pdf_file = Path("example.bin")
-    assert pdf_file.is_file()
-
-    # Upload PDF file to Mistral's OCR service
-    uploaded_file = client.files.upload(
-        file={
-            "file_name": pdf_file.stem,
-            "content": pdf_file.read_bytes(),
-        },
-        purpose="ocr",
-    )
-
-    # Get URL for the uploaded file
-    signed_url = client.files.get_signed_url(file_id=uploaded_file.id, expiry=1)
-  except Exception as e:
-     logger.debug(f"failed trying to upload file with type {type(content)} due to error {e}")
-     return None, "file was not uploaded properly"
-
-  # process pdf
-  wait_time = 1
-  it = 0
-  while(it < 5):
-    try:
-      pdf_response = client.ocr.process(
-          document=DocumentURLChunk(document_url=signed_url.url), 
-          model="mistral-ocr-latest", 
-          include_image_base64=True
-      )
-      break
-    except:
-      it+=1
-      if wait_time == 1 :
-        wait_time *= 2
-      else:
-        wait_time **2
-      time.sleep(wait_time)
-      continue
-
-  if(it == 5):
-     logger.debug("failed trying to process file")
-     return None, "failed to process"
-    
-  
-  pages, markdown_display = get_combined_markdown(pdf_response)
-
-  if pages == None:
-      return pages, markdown_display
-
-  num_tokens = num_tokens_by_tiktoken(markdown_display)
-
-  if(num_tokens > 100000):
-    logger.debug("Doc too large")
-    return None, "num tokens too large"
-  
-  return pages, markdown_display
-
-
-def replace_images_in_markdown(markdown_str: str, images_dict: dict) -> str:
-  for img_name, base64_str in images_dict.items():
-        # print("replacing images")
-        header, encoded = base64_str.split(",", 1)
-        base64_data_url = f"data:image/jpeg;base64,{encoded}"
-        # Process image with OCR
-        # process pdf
-        wait_time = 1
-        it = 0
-        while(it < 5):
-          try:
-            image_response = client.ocr.process(
-                document=ImageURLChunk(image_url=base64_data_url),
-                model="mistral-ocr-latest"
+    def extract(self, file_name: str, content: bytes) -> tuple[list[str], str]:
+        client = self._get_client()
+        try:
+            uploaded_file = client.files.upload(
+                file={
+                    "file_name": file_name,
+                    "content": content,
+                },
+                purpose="ocr",
             )
-            break
-          except:
-            it+=1
-            if wait_time == 1 :
-              wait_time *= 2
-            else:
-              wait_time **2
-            time.sleep(wait_time)
-            continue
-        if it == 5:
-          return "failed"
-        # Combine text from image and markdown and extract JSON metadata
-        image_ocr_markdown = image_response.pages[0].markdown
-        empty_str = ""
-        markdown_str = markdown_str.replace(f"![{img_name}]({img_name})", f"![{empty_str}]({image_ocr_markdown})")
-        # images_dict[img_name] = im
-  # print("done replacing images")
-  # print(markdown_str)
-  return markdown_str
+            signed_url = client.files.get_signed_url(file_id=uploaded_file.id, expiry=1)
+        except Exception as exc:
+            raise OCRProcessingError("Failed to upload PDF to OCR provider") from exc
 
-def get_combined_markdown(ocr_response: OCRResponse) -> str:
-  markdowns: list[str] = []
-  markdownToDisplay: list[str] = []
-  for page in ocr_response.pages:
-    image_data = {}
-    for img in page.images:
-      image_data[img.id] = img.image_base64
-    page_output = replace_images_in_markdown(page.markdown, image_data)
-    if page_output == "failed":
-       return None, page_output
-    markdowns.append(page_output)
-    markdownToDisplay.append(page.markdown)
-  # print("done getting combined markdown")
-  # print(markdowns)
-
-  return markdowns, "\n\n".join(markdownToDisplay)
-
-
-"""
-FUNCTIONS FOR DISPLAYING OCR'ED TEXT
-"""
-
-
-def replace_images_in_markdown_to_display(markdown_str: str, images_dict: dict) -> str:
-    """
-    Replace image placeholders in markdown with base64-encoded images.
-
-    Args:
-        markdown_str: Markdown text containing image placeholders
-        images_dict: Dictionary mapping image IDs to base64 strings
-
-    Returns:
-        Markdown text with images replaced by base64 data
-    """
-    for img_name, base64_str in images_dict.items():
-        markdown_str = markdown_str.replace(
-            f"![{img_name}]({img_name})", f"![{img_name}]({base64_str})"
+        pdf_response = self._process_with_retries(
+            lambda: client.ocr.process(
+                document=DocumentURLChunk(document_url=signed_url.url),
+                model=self.model_name,
+                include_image_base64=True,
+            ),
+            "Failed to process PDF with OCR provider",
         )
-    return markdown_str
 
-def get_combined_markdown_to_display(ocr_response: OCRResponse) -> str:
-    """
-    Combine OCR text and images into a single markdown document.
+        pages, markdown_display = self._get_combined_markdown(pdf_response)
+        token_count = self._num_tokens(markdown_display)
+        if token_count > self.max_tokens:
+            raise OCRProcessingError(
+                "OCR output exceeds the supported token limit",
+                details={"token_count": token_count, "max_tokens": self.max_tokens},
+            )
 
-    Args:
-        ocr_response: Response from OCR processing containing text and images
+        return pages, markdown_display
 
-    Returns:
-        Combined markdown string with embedded images
-    """
-    markdowns: list[str] = []
-    # Extract images from page
-    for page in ocr_response.pages:
-        image_data = {}
-        for img in page.images:
-            image_data[img.id] = img.image_base64
-        # Replace image placeholders with actual images
-        markdowns.append(replace_images_in_markdown_to_display(page.markdown, image_data))
+    def _get_client(self) -> Mistral:
+        if not self.api_key:
+            raise ConfigurationError("MISTRAL_API_KEY is not configured")
+        if self._client is None:
+            self._client = Mistral(api_key=self.api_key)
+        return self._client
 
-    return "\n\n".join(markdowns)
+    def _process_with_retries(self, operation: Callable[[], OCRResponse], message: str) -> OCRResponse:
+        wait_time = 1
+        last_error: Exception | None = None
+        for _ in range(5):
+            try:
+                return operation()
+            except Exception as exc:
+                last_error = exc
+                time.sleep(wait_time)
+                wait_time = wait_time * 2
+        raise OCRProcessingError(message) from last_error
 
-def mistral_ocr_markdown(pdf_path) -> str:
-  """
-  pdf path - path to a valid pdf
-  """
-  # load file
-  uploaded_pdf = client.files.upload(
-      file={
-          "file_name": "uploaded_file.pdf",
-          "content": open(pdf_path, "rb"),
-      },
-      purpose="ocr"
-  )
-  signed_url = client.files.get_signed_url(file_id=uploaded_pdf.id)
+    def _num_tokens(self, text: str) -> int:
+        encoding = tiktoken.encoding_for_model("gpt-4-turbo")
+        return len(encoding.encode(text))
 
-  # process pdf
-  wait_time = 1
-  it = 0
-  while(it < 5):
-    try:
-      pdf_response = client.ocr.process(
-          document=DocumentURLChunk(document_url=signed_url.url),
-          model="mistral-ocr-latest",
-          include_image_base64=True
-      )
-      break
-    except:
-      it+=1
-      if wait_time == 1 :
-        wait_time *= 2
-      else:
-        wait_time **2
-      time.sleep(wait_time)
-      continue
-    return "failed"
+    def _replace_images_in_markdown(self, markdown_str: str, images_dict: dict[str, str]) -> str:
+        client = self._get_client()
+        for image_name, base64_str in images_dict.items():
+            _, encoded = base64_str.split(",", 1)
+            base64_data_url = f"data:image/jpeg;base64,{encoded}"
+            image_response = self._process_with_retries(
+                lambda: client.ocr.process(
+                    document=ImageURLChunk(image_url=base64_data_url),
+                    model=self.model_name,
+                ),
+                "Failed to process embedded image with OCR provider",
+            )
+            image_ocr_markdown = image_response.pages[0].markdown
+            markdown_str = markdown_str.replace(
+                f"![{image_name}]({image_name})",
+                f"![]({image_ocr_markdown})",
+            )
+        return markdown_str
 
-  pdf_text = pdf_response.pages[0].markdown
-
-  # CHANGE THIS
-  # display(Markdown(get_combined_markdown_to_display(pdf_response)))
+    def _get_combined_markdown(self, ocr_response: OCRResponse) -> tuple[list[str], str]:
+        markdowns: list[str] = []
+        markdown_to_display: list[str] = []
+        for page in ocr_response.pages:
+            image_data = {image.id: image.image_base64 for image in page.images}
+            markdowns.append(self._replace_images_in_markdown(page.markdown, image_data))
+            markdown_to_display.append(page.markdown)
+        return markdowns, "\n\n".join(markdown_to_display)
