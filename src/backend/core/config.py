@@ -38,14 +38,14 @@ class Settings(BaseSettings):
         validation_alias="CORS_ORIGINS",
     )
 
-    openai_api_key: str | None = Field(default=None, validation_alias="OPENAI_API_KEY")
-    mistral_api_key: str | None = Field(default=None, validation_alias="MISTRAL_API_KEY")
+    openai_api_key: str = Field(default=None, validation_alias="OPENAI_API_KEY")
+    mistral_api_key: str = Field(default=None, validation_alias="MISTRAL_API_KEY")
     openai_chat_model: str = Field(default="gpt-4", validation_alias="OPENAI_CHAT_MODEL")
     mistral_ocr_model: str = Field(default="mistral-ocr-latest", validation_alias="MISTRAL_OCR_MODEL")
 
     log_level: str = Field(default="INFO", validation_alias="LOG_LEVEL")
-    log_file: str | None = Field(default="app.log", validation_alias="LOG_FILE")
-    frontend_dist_dir: str | None = Field(default=PROJECT_ROOT / "frontend.py", validation_alias="FRONTEND_DIST_DIR")
+    log_file: str = Field(default="app.log", validation_alias="LOG_FILE")
+    frontend_dist_dir: str = Field(default=str(PROJECT_ROOT / "src/frontend"), validation_alias="FRONTEND_DIST_DIR")
 
     # clip_model: str = "openai/clip-vit-base-patch32"
     # device: str = "cuda"

@@ -1,3 +1,9 @@
+"""
+The following file uses Mistral 3 OCR. Check the docs below for more info.
+
+https://docs.mistral.ai/capabilities/document_ai/basic_ocr
+"""
+
 import time
 from typing import Callable
 
@@ -12,18 +18,19 @@ class MistralOCRProvider:
     def __init__(
         self,
         *,
-        api_key: str | None,
+        api_key: str ,
         model_name: str,
         max_tokens: int = 100000,
     ) -> None:
         self.api_key = api_key
         self.model_name = model_name
         self.max_tokens = max_tokens
-        self._client: Mistral | None = None
+        self._client: Mistral = Mistral(api_key=api_key)
 
     def extract(self, file_name: str, content: bytes) -> tuple[list[str], str]:
         client = self._get_client()
         try:
+            # Mistral OCR 2 call (deprecated)
             uploaded_file = client.files.upload(
                 file={
                     "file_name": file_name,

@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 Interface which user can inject a concrete implementation of at runtime
 """
 class MetadataProvider(Protocol):
-    def extract(self, ocr_output: str) -> str:
+    def extract(self, ocr_output: str) -> MetadataResponse:
         ...
 
 
@@ -27,5 +27,5 @@ class MetadataService:
         except AppError:
             logger.exception("Metadata extraction failed for document '%s'", doc_name)
             raise
-
-        return MetadataResponse(metadata=metadata)
+        return metadata
+        # return MetadataResponse(metadata=metadata)
