@@ -68,7 +68,7 @@ def page_home():
                 ui.button('Search', on_click=handle_search) \
                     .classes('w-full bg-blue-600 text-white hover:bg-blue-600')
 
-# Extraction Page
+# Extraction Page Functionality
 @ui.page('/extract')
 def extraction_tool():
 
