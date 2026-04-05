@@ -53,9 +53,9 @@ Follow these steps to run the application:
 
 5. **Understand the application**
 
-  Documentation at http://127.0.0.1:8000/docs
-  Server started at http://127.0.0.1:8000
-  Click on "Process Data" in frontend to see functionality (Search functionality to be added)
+  - Documentation at http://127.0.0.1:8000/docs
+  - Server started at http://127.0.0.1:8000
+  - Click on "Process Data" in frontend to see functionality (Search functionality to be added)
 
 
 ## Options Available
