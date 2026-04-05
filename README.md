@@ -7,12 +7,6 @@ This tool helps you:
 - Store that metadata in our database
 - Search texts in our database based on keywords
 
-Our Public API is as follows:
-
-- POST /api/extraction/ocr accepts multipart/form-data with one PDF and returns OcrResult { documentName, pageCount, pages, markdown }.
-
-- POST /api/extraction/metadata accepts MetadataRequest { documentName, ocrText } and returns MetadataResponse { metadata }.
-
 <!-- - POST /api/search/query accepts SearchQuery { subject?, people?, date?, collection? } and returns SearchResponse { items, total, implementationStatus }, with implementationStatus: "stub" until Elasticsearch is added. -->
 
 More information can be found on OpenAPI (the automatic interactive documentation systems).
@@ -52,6 +46,16 @@ Follow these steps to run the application:
 - ELASTICSEARCH_URL
 
 5. **Run the application**
+  Run 
+    - fastapi dev src/backend/main.py
+    - python src/frontend/frontend.py
+
+
+5. **Understand the application**
+
+  Documentation at http://127.0.0.1:8000/docs
+  Server started at http://127.0.0.1:8000
+  Click on "Process Data" in frontend to see functionality (Search functionality to be added)
 
 
 ## Options Available
