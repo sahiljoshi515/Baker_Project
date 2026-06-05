@@ -54,7 +54,8 @@ Follow these steps to run the application:
 5. **Understand the application**
 
   - Documentation at http://127.0.0.1:8000/docs
-  - Server started at http://127.0.0.1:8000
+  - Server (FastAPI) started at http://127.0.0.1:8000
+  - Frontend (NiceGUI) ready to go on http://localhost:8080, and http://10.134.128.10:8080
   - Click on "Process Data" in frontend to see functionality (Search functionality to be added)
 
 
